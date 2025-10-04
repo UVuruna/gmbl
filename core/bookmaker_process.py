@@ -1,14 +1,14 @@
 # bookmaker_process.py
 
-from main.screen_reader import ScreenReader
-from main.gui_controller import BettingRequest
+from core.screen_reader import ScreenReader
+from core.gui_controller import BettingRequest
 from regions.score import Score
-from regions.region_MyMoney import MyMoney
+from regions.my_money import MyMoney
 from regions.other_count import OtherCount
 from regions.other_money import OtherMoney
 from regions.game_phase import GamePhaseDetector
 from config import GamePhase
-from root.logger import AviatorLogger
+from logger import AviatorLogger
 
 import multiprocessing as mp
 from multiprocessing import Process, Queue

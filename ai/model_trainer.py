@@ -11,7 +11,7 @@ from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bo
 from skimage.color import rgb2lab, lab2rgb
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
-from root.logger import AviatorLogger
+from logger import AviatorLogger
 
 
 class GMMWrapper:
@@ -255,7 +255,7 @@ class ModelTrainer:
 
 
 def main():
-    from root.logger import init_logging
+    from logger import init_logging
     
     init_logging()
     
@@ -297,9 +297,9 @@ def main():
         algo_name = 'kmeans'
     
     # Save
-    model_path = f"models/{db_name}_{algo_name}.pkl"
+    model_path = f"data/models/{db_name}_{algo_name}.pkl"
     trainer.save_model(model_path)
-    trainer.save_mapping("models/model_mapping.json", f"{db_name}_{algo_name}.pkl")
+    trainer.save_mapping("data/models/model_mapping.json", f"{db_name}_{algo_name}.pkl")
     
     # Visualize
     print("\nVisualize? (y/n): ", end='')

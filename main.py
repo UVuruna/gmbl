@@ -1,293 +1,399 @@
 # main.py
-# VERSION: 2.1
-# CHANGES: Fixed signal handler for graceful shutdown, improved Ctrl+C handling
-
 """
-Aviator Game Data Collection Application
-Collects game data from demo mode for AI pattern analysis
-Supports multiple parallel bookmakers (up to 6)
-
-SHUTDOWN: Press Ctrl+C to gracefully stop all processes
+Aviator Data Collection System - Main Entry Point
+Version: 4.0
+Multi-bookmaker parallel data collection with betting simulation
 """
 
-from main.bookmaker_orchestrator import BookmakerOrchestrator
-from main.coord_getter import CoordGetter
-from main.coord_manager import CoordsManager
-from database.setup import setup_database
-from config import AppConstants, BookmakerConfig
-from root.logger import init_logging, AviatorLogger
-
-import signal
 import sys
+import signal
 import time
-from typing import List, Dict
+import multiprocessing as mp
+from pathlib import Path
+from typing import List, Dict, Optional
+
+# Add project root to path
+sys.path.insert(0, str(Path(__file__).parent))
+
+from config import app_config, bookmaker_config
+from logger import init_logging, AviatorLogger
+from core.bookmaker_orchestrator import BookmakerOrchestrator
+from core.coord_manager import CoordsManager
+from database.worker import get_worker, stop_worker
+from utils.diagnostic import run_diagnostics
+from utils.performance_analyzer import PerformanceAnalyzer
 
 
-# Global orchestrator for signal handler access
-orchestrator = None
-
-
-def signal_handler(signum, frame):
-    """
-    Handle Ctrl+C (SIGINT) gracefully.
+class AviatorSystem:
+    """Main system controller for Aviator data collection"""
     
-    CRITICAL: This allows user to stop application with Ctrl+C
-    instead of requiring Alt+F4 or Task Manager.
-    """
-    logger = AviatorLogger.get_logger("Main")
-    logger.info("\n" + "="*60)
-    logger.info("CTRL+C DETECTED - Initiating graceful shutdown...")
-    logger.info("="*60)
+    def __init__(self):
+        """Initialize the Aviator system"""
+        self.logger = None
+        self.orchestrator = None
+        self.db_worker = None
+        self.coords_manager = None
+        self.is_running = False
+        self.start_time = None
+        
+    def initialize(self) -> bool:
+        """
+        Initialize all system components
+        
+        Returns:
+            True if initialization successful
+        """
+        try:
+            # Initialize logging
+            init_logging(debug=app_config.debug)
+            self.logger = AviatorLogger.get_logger("AviatorSystem")
+            
+            self.logger.info("="*70)
+            self.logger.info("AVIATOR DATA COLLECTION SYSTEM v4.0")
+            self.logger.info("="*70)
+            
+            # Run diagnostics
+            self.logger.info("Running system diagnostics...")
+            if not run_diagnostics(quick=True):
+                self.logger.error("System diagnostics failed!")
+                return False
+            
+            # Initialize coordinates manager
+            self.coords_manager = CoordsManager()
+            
+            # Start database worker
+            self.logger.info("Starting database worker...")
+            self.db_worker = get_worker()
+            
+            # Initialize orchestrator
+            self.logger.info("Initializing bookmaker orchestrator...")
+            self.orchestrator = BookmakerOrchestrator()
+            
+            self.logger.info("System initialization complete")
+            return True
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.critical(f"Initialization failed: {e}", exc_info=True)
+            else:
+                print(f"CRITICAL: Initialization failed: {e}")
+            return False
     
-    global orchestrator
-    if orchestrator:
-        orchestrator.stop()
+    def configure_bookmakers(self) -> bool:
+        """
+        Configure bookmakers for data collection
+        
+        Returns:
+            True if at least one bookmaker configured
+        """
+        try:
+            self.logger.info("\n" + "="*70)
+            self.logger.info("BOOKMAKER CONFIGURATION")
+            self.logger.info("="*70)
+            
+            # Get configuration choice
+            print("\nConfiguration Options:")
+            print("1. Use existing configuration")
+            print("2. Create new configuration")
+            print("3. Quick test mode (1 bookmaker)")
+            
+            choice = input("\nSelect option (1-3): ").strip()
+            
+            if choice == "3":
+                # Quick test mode
+                return self._configure_test_mode()
+            elif choice == "2":
+                # New configuration
+                return self._configure_new_bookmakers()
+            else:
+                # Existing configuration
+                return self._load_existing_configuration()
+                
+        except Exception as e:
+            self.logger.error(f"Configuration failed: {e}", exc_info=True)
+            return False
     
-    logger.info("Application stopped successfully")
+    def _configure_test_mode(self) -> bool:
+        """Configure single bookmaker for testing"""
+        self.logger.info("Configuring test mode with 1 bookmaker...")
+        
+        # Setup test bookmaker
+        test_config = {
+            'name': 'TestBookmaker',
+            'position': 'Center',
+            'bet_style': 'balanced',
+            'collection_interval': 0.2
+        }
+        
+        # Setup coordinates
+        print("\n📍 Setting up test bookmaker coordinates...")
+        print("Please position the game window and follow instructions...")
+        
+        coords = self.coords_manager.setup_bookmaker_interactive(
+            test_config['name'],
+            test_config['position']
+        )
+        
+        if coords:
+            # Save configuration
+            config_name = 'test_config'
+            self.coords_manager.save_coordinates(config_name, 'Center', coords)
+            
+            # Add to orchestrator
+            self.orchestrator.add_bookmaker(
+                name=test_config['name'],
+                coords=coords,
+                bet_style=test_config['bet_style'],
+                collection_interval=test_config['collection_interval']
+            )
+            
+            self.logger.info("Test mode configured successfully")
+            return True
+        
+        return False
+    
+    def _configure_new_bookmakers(self) -> bool:
+        """Configure multiple bookmakers interactively"""
+        config_name = input("\nEnter configuration name: ").strip()
+        if not config_name:
+            config_name = f"config_{int(time.time())}"
+        
+        num_bookmakers = int(input("Number of bookmakers (1-6): ").strip() or "3")
+        num_bookmakers = max(1, min(6, num_bookmakers))
+        
+        configured = 0
+        
+        for i in range(num_bookmakers):
+            print(f"\n{'='*60}")
+            print(f"BOOKMAKER {i+1}/{num_bookmakers}")
+            print(f"{'='*60}")
+            
+            # Get bookmaker details
+            name = input(f"Bookmaker name: ").strip()
+            if not name:
+                name = f"Bookmaker_{i+1}"
+            
+            position = ['Left', 'Center', 'Right', 'TopLeft', 'TopCenter', 'TopRight'][i]
+            
+            # Choose betting style
+            print("\nBetting styles:")
+            print("1. Cautious (low risk)")
+            print("2. Balanced (moderate)")
+            print("3. Risky (high risk)")
+            print("4. Crazy (very high)")
+            print("5. Addict (extreme)")
+            print("6. All-in (maximum)")
+            
+            style_choice = int(input("Select style (1-6): ").strip() or "2")
+            styles = ['cautious', 'balanced', 'risky', 'crazy', 'addict', 'all-in']
+            bet_style = styles[style_choice - 1] if 1 <= style_choice <= 6 else 'balanced'
+            
+            # Setup coordinates
+            print(f"\n📍 Setting up coordinates for {name}...")
+            coords = self.coords_manager.setup_bookmaker_interactive(name, position)
+            
+            if coords:
+                # Save coordinates
+                self.coords_manager.save_coordinates(config_name, position, coords)
+                
+                # Add to orchestrator
+                self.orchestrator.add_bookmaker(
+                    name=name,
+                    coords=coords,
+                    bet_style=bet_style,
+                    collection_interval=app_config.default_collection_interval
+                )
+                
+                configured += 1
+                self.logger.info(f"Configured {name} ({position}) with {bet_style} strategy")
+            else:
+                self.logger.warning(f"Failed to configure {name}")
+        
+        self.logger.info(f"Configured {configured}/{num_bookmakers} bookmakers")
+        return configured > 0
+    
+    def _load_existing_configuration(self) -> bool:
+        """Load existing bookmaker configuration"""
+        # List available configurations
+        configs = self.coords_manager.list_configurations()
+        
+        if not configs:
+            self.logger.warning("No existing configurations found")
+            return False
+        
+        print("\nAvailable configurations:")
+        for i, config in enumerate(configs, 1):
+            print(f"{i}. {config}")
+        
+        choice = input("\nSelect configuration: ").strip()
+        
+        try:
+            if choice.isdigit():
+                config_name = configs[int(choice) - 1]
+            else:
+                config_name = choice
+            
+            # Load configuration
+            bookmakers = self.coords_manager.load_configuration(config_name)
+            
+            if not bookmakers:
+                self.logger.error(f"Configuration '{config_name}' is empty")
+                return False
+            
+            # Add bookmakers to orchestrator
+            for position, data in bookmakers.items():
+                # Get betting style
+                print(f"\nSelect betting style for {data.get('name', position)}:")
+                print("1=Cautious, 2=Balanced, 3=Risky, 4=Crazy, 5=Addict, 6=All-in")
+                style_choice = int(input("Choice (1-6): ").strip() or "2")
+                
+                styles = ['cautious', 'balanced', 'risky', 'crazy', 'addict', 'all-in']
+                bet_style = styles[style_choice - 1] if 1 <= style_choice <= 6 else 'balanced'
+                
+                self.orchestrator.add_bookmaker(
+                    name=data.get('name', position),
+                    coords=data,
+                    bet_style=bet_style,
+                    collection_interval=app_config.default_collection_interval
+                )
+            
+            self.logger.info(f"Loaded {len(bookmakers)} bookmakers from '{config_name}'")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to load configuration: {e}")
+            return False
+    
+    def start(self) -> None:
+        """Start the data collection system"""
+        try:
+            self.logger.info("\n" + "="*70)
+            self.logger.info("STARTING DATA COLLECTION")
+            self.logger.info("="*70)
+            
+            self.is_running = True
+            self.start_time = time.time()
+            
+            # Start orchestrator
+            self.orchestrator.start()
+            
+            self.logger.info(f"System running with {self.orchestrator.worker_count} bookmakers")
+            self.logger.info("Press Ctrl+C to stop...")
+            
+            # Main monitoring loop
+            self._run_monitoring_loop()
+            
+        except KeyboardInterrupt:
+            self.logger.info("\nReceived shutdown signal...")
+        except Exception as e:
+            self.logger.critical(f"System error: {e}", exc_info=True)
+        finally:
+            self.stop()
+    
+    def _run_monitoring_loop(self) -> None:
+        """Main monitoring loop"""
+        last_stats_time = time.time()
+        
+        while self.is_running:
+            try:
+                # Sleep briefly
+                time.sleep(1)
+                
+                # Log statistics periodically
+                if time.time() - last_stats_time >= 30:
+                    self._log_system_stats()
+                    last_stats_time = time.time()
+                
+                # Check system health
+                if not self.orchestrator.is_healthy():
+                    self.logger.warning("System health check failed")
+                
+            except KeyboardInterrupt:
+                break
+    
+    def _log_system_stats(self) -> None:
+        """Log system statistics"""
+        runtime = time.time() - self.start_time
+        
+        # Get database stats
+        db_stats = self.db_worker.get_stats()
+        
+        # Get orchestrator stats
+        orch_stats = self.orchestrator.get_stats()
+        
+        self.logger.info("="*60)
+        self.logger.info("SYSTEM STATISTICS")
+        self.logger.info("="*60)
+        self.logger.info(f"Runtime:        {runtime/60:.1f} minutes")
+        self.logger.info(f"Bookmakers:     {orch_stats['active_workers']}/{orch_stats['total_workers']}")
+        self.logger.info(f"DB Processed:   {db_stats['total_processed']:,}")
+        self.logger.info(f"DB Queue:       {db_stats['queue_size']:,}")
+        self.logger.info(f"Throughput:     {db_stats['items_per_second']:.1f} items/sec")
+        self.logger.info("="*60)
+    
+    def stop(self) -> None:
+        """Stop the system gracefully"""
+        self.logger.info("\n" + "="*70)
+        self.logger.info("SHUTTING DOWN SYSTEM")
+        self.logger.info("="*70)
+        
+        self.is_running = False
+        
+        # Stop orchestrator
+        if self.orchestrator:
+            self.logger.info("Stopping bookmaker orchestrator...")
+            self.orchestrator.stop()
+        
+        # Stop database worker
+        self.logger.info("Stopping database worker...")
+        stop_worker()
+        
+        # Log final statistics
+        if self.start_time:
+            runtime = time.time() - self.start_time
+            self.logger.info(f"Total runtime: {runtime/60:.1f} minutes")
+        
+        # Run performance analysis
+        self.logger.info("Running final performance analysis...")
+        analyzer = PerformanceAnalyzer()
+        analyzer.analyze_session()
+        
+        self.logger.info("System shutdown complete")
+        self.logger.info("="*70)
+
+
+def signal_handler(sig, frame):
+    """Handle interrupt signals"""
+    print("\n[SIGNAL] Shutdown requested...")
     sys.exit(0)
 
 
-def setup_bookmaker_coordinates(bookmaker_name: str, position: str) -> Dict:
-    """Interactive setup for bookmaker screen regions and coordinates."""
-    logger = AviatorLogger.get_logger("Setup")
-    
-    print(f"\n{'='*60}")
-    print(f"Setting up: {bookmaker_name} ({position} position)")
-    print(f"{'='*60}\n")
-    
-    config = {}
-    
-    try:
-        print("\n[1/7] Setting up SCORE region...")
-        print("Click top-left corner, then bottom-right corner of the score display")
-        score_getter = CoordGetter(bookmaker_name, "Score Region", "region")
-        config['score_region'] = score_getter.get_region()
-        logger.info(f"Score region set: {config['score_region']}")
-        
-        print("\n[2/7] Setting up MY MONEY region...")
-        print("Click top-left corner, then bottom-right corner of your balance display")
-        my_money_getter = CoordGetter(bookmaker_name, "My Money Region", "region")
-        config['my_money_region'] = my_money_getter.get_region()
-        logger.info(f"My money region set: {config['my_money_region']}")
-        
-        print("\n[3/7] Setting up OTHER COUNT region...")
-        print("Click top-left corner, then bottom-right corner of the player count display")
-        other_count_getter = CoordGetter(bookmaker_name, "Other Count Region", "region")
-        config['other_count_region'] = other_count_getter.get_region()
-        logger.info(f"Other count region set: {config['other_count_region']}")
-        
-        print("\n[4/7] Setting up OTHER MONEY region...")
-        print("Click top-left corner, then bottom-right corner of total players' winnings")
-        other_money_getter = CoordGetter(bookmaker_name, "Other Money Region", "region")
-        config['other_money_region'] = other_money_getter.get_region()
-        logger.info(f"Other money region set: {config['other_money_region']}")
-        
-        print("\n[5/7] Setting up PHASE DETECTION region...")
-        print("Click top-left corner, then bottom-right corner for phase color detection")
-        print("(Can be same as score region, or a specific area that changes color)")
-        phase_getter = CoordGetter(bookmaker_name, "Phase Region", "region")
-        config['phase_region'] = phase_getter.get_region()
-        logger.info(f"Phase region set: {config['phase_region']}")
-        
-        print("\n[6/7] Setting up BET AMOUNT input field...")
-        print("Click on the bet amount input field")
-        amount_getter = CoordGetter(bookmaker_name, "Bet Amount Field", "coordinate")
-        config['play_amount_coords'] = amount_getter.get_coordinate()
-        logger.info(f"Bet amount coords set: {config['play_amount_coords']}")
-        
-        print("\n[7/7] Setting up PLAY BUTTON...")
-        print("Click on the PLAY/BET button")
-        button_getter = CoordGetter(bookmaker_name, "Play Button", "coordinate")
-        config['play_button_coords'] = button_getter.get_coordinate()
-        logger.info(f"Play button coords set: {config['play_button_coords']}")
-        
-        print(f"\n{'='*60}")
-        print(f"✓ Setup complete for {bookmaker_name} ({position})!")
-        print(f"{'='*60}\n")
-        
-        return config
-        
-    except Exception as e:
-        logger.error(f"Setup error: {e}", exc_info=True)
-        raise
-
-
-def choose_gambling_style(bookmaker_name: str) -> List[int]:
-    """Let user choose a gambling style and return the corresponding bet sequence."""
-    print(f"\n[OPTIONAL] Choose gambling style for {bookmaker_name}")
-    print("\nGambling styles:")
-    print("1. Cautious (low risk)")
-    print("2. Balanced (moderate risk)")
-    print("3. Risky (high risk)")
-    print("4. Crazy (very high risk)")
-    print("5. Addict (extreme risk)")
-    print("6. All-in (maximum risk)")
-    
-    choice = input("\nEnter choice (1-6, default 1): ").strip()
-    choice = int(choice) if choice.isdigit() and 1 <= int(choice) <= 6 else 1
-    
-    styles = {
-        1: BookmakerConfig.bet_style['cautious'],
-        2: BookmakerConfig.bet_style['balanced'],
-        3: BookmakerConfig.bet_style['risky'],
-        4: BookmakerConfig.bet_style['crazy'],
-        5: BookmakerConfig.bet_style['addict'],
-        6: BookmakerConfig.bet_style['all-in']
-    }
-    
-    gambling_style = styles.get(choice, BookmakerConfig.bet_style['cautious'])
-    
-    try:
-        bet_length = int(input(
-            f"\n[OPTIONAL] Enter bet length for {bookmaker_name}"
-            f"\n\tOptions: (5-10, default: {BookmakerConfig.bet_length}): "
-        ).strip() or BookmakerConfig.bet_length)
-    except ValueError:
-        bet_length = BookmakerConfig.bet_length
-    
-    bet_length = max(5, min(bet_length, len(gambling_style)))
-    return gambling_style[:bet_length]
-
-
-def get_bookmaker_configs_interactive(coords_manager: CoordsManager) -> List[Dict]:
-    """Interactive setup for 3 bookmakers with coordinate saving."""
-    logger = AviatorLogger.get_logger("Main")
-    
-    bookmaker_positions = [
-        ("Left", "BalkanBet"),
-        ("Center", "Mozzart"),
-        ("Right", "Soccer")
-    ]
-    
-    print("\n" + "="*60)
-    print("BOOKMAKER CONFIGURATION")
-    print("="*60)
-    print("\nOptions:")
-    print("1. Use existing configuration")
-    print("2. Create new configuration")
-    
-    choice = input("\nEnter choice (1-2): ").strip()
-    
-    if choice == "1":
-        config_name = input("Enter configuration name (e.g., '3_bookmakers_console'): ").strip()
-        if not config_name:
-            config_name = "3_bookmakers_console"
-        
-        try:
-            configs = []
-            for position, name in bookmaker_positions:
-                coords = coords_manager.load_coordinates(config_name, position)
-                configs.append({
-                    'name': name,
-                    'bet_sequence': choose_gambling_style(name),
-                    **coords
-                })
-                logger.info(f"Loaded bookmaker {len(configs)}: {name} ({position})")
-            return configs
-        except FileNotFoundError:
-            print(f"\nConfiguration '{config_name}' not found. Creating new configuration...")
-            choice = "2"
-    
-    if choice == "2":
-        config_name = input("Enter new configuration name (e.g., '3_bookmakers_console'): ").strip()
-        if not config_name:
-            config_name = "3_bookmakers_console"
-        
-        logger.info(f"Starting interactive setup for {len(bookmaker_positions)} bookmakers")
-        
-        configs = []
-        for idx, (position, name) in enumerate(bookmaker_positions, 1):
-            print(f"\n{'='*60}")
-            print(f"BOOKMAKER {idx}/{len(bookmaker_positions)}")
-            print(f"{'='*60}")
-            
-            coords = setup_bookmaker_coordinates(name, position)
-            coords_manager.save_coordinates(config_name, position, coords)
-            
-            configs.append({
-                'name': name,
-                'bet_sequence': choose_gambling_style(name),
-                **coords
-            })
-            
-            logger.info(f"Bookmaker {idx}/{len(bookmaker_positions)} configured: {name} ({position})")
-        
-        return configs
-    
-    raise ValueError("Invalid choice")
-
-
 def main():
-    """Main application entry point."""
-    global orchestrator
-    
-    # CRITICAL: Register signal handler for graceful shutdown
+    """Main entry point"""
+    # Set up signal handling
     signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
     
-    # Initialize logging
-    logger = init_logging()
+    # Set multiprocessing start method
+    mp.set_start_method('spawn', force=True)
     
-    logger.info("=" * 60)
-    logger.info(f"Aviator Data Collection Started - {time.strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info(f"Debug mode: {AppConstants.debug}")
-    logger.info("=" * 60)
+    # Create and run system
+    system = AviatorSystem()
     
-    try:
-        # Setup database
-        logger.info("Setting up database...")
-        setup_database()
-        
-        # Initialize coords manager
-        coords_manager = CoordsManager()
-        
-        # Get bookmaker configurations
-        bookmaker_configs = get_bookmaker_configs_interactive(coords_manager)
-        
-        # Create orchestrator
-        orchestrator = BookmakerOrchestrator()
-        
-        # Add bookmakers to orchestrator
-        for config in bookmaker_configs:
-            orchestrator.add_bookmaker(
-                name=config['name'],
-                auto_stop=BookmakerConfig.auto_stop,
-                target_money=BookmakerConfig.target_money,
-                play_amount_coords=config['play_amount_coords'],
-                play_button_coords=config['play_button_coords'],
-                bet_sequence=config['bet_sequence'],
-                score_region=config['score_region'],
-                my_money_region=config['my_money_region'],
-                other_count_region=config['other_count_region'],
-                other_money_region=config['other_money_region'],
-                phase_region=config['phase_region']
-            )
-            logger.info(f"Added bookmaker: {config['name']} (auto_stop={BookmakerConfig.auto_stop}, target={BookmakerConfig.target_money})")
-        
-        # Start data collection
-        logger.info(f"Starting data collection with {len(bookmaker_configs)} parallel bookmakers...")
-        logger.info("Press Ctrl+C to stop gracefully")
-        orchestrator.start()
-        
-        # Keep main thread alive
-        try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            # This should not be reached due to signal handler, but just in case
-            logger.info("KeyboardInterrupt caught in main loop")
-            orchestrator.stop()
-        
-    except Exception as e:
-        logger.critical(f"Critical application error: {e}", exc_info=True)
-        if orchestrator:
-            orchestrator.stop()
+    # Initialize
+    if not system.initialize():
+        print("Failed to initialize system!")
         sys.exit(1)
     
-    finally:
-        logger.info("Application stopped")
-        logger.info(f"Check '{AppConstants.database}' for collected data")
-        logger.info(f"Check 'logs/{AppConstants.log_file}' for detailed logs")
+    # Configure bookmakers
+    if not system.configure_bookmakers():
+        print("No bookmakers configured!")
+        sys.exit(1)
+    
+    # Start system
+    system.start()
+    
+    # Exit cleanly
+    sys.exit(0)
 
 
 if __name__ == "__main__":

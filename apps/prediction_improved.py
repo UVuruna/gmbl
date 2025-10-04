@@ -11,7 +11,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import classification_report, confusion_matrix
 import joblib
 from typing import Dict, List, Tuple, Optional
-from root.logger import AviatorLogger
+from logger import AviatorLogger
 
 
 class PredictionAnalyzer:
@@ -335,7 +335,7 @@ class PredictionAnalyzer:
 
 def main():
     """Train and evaluate prediction models."""
-    from root.logger import init_logging
+    from logger import init_logging
     
     init_logging()
     logger = AviatorLogger.get_logger("Main")

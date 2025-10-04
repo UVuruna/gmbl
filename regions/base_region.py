@@ -1,6 +1,6 @@
 # region.py
 
-from main.screen_reader import ScreenReader
+from core.screen_reader import ScreenReader
 
 from abc import ABC, abstractmethod
 import re

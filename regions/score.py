@@ -1,13 +1,13 @@
 # region_Score.py
 
 from config import AppConstants, GamePhase
-from main.screen_reader import ScreenReader
+from core.screen_reader import ScreenReader
 from regions.base_region import Region
 from regions.game_phase import GamePhaseDetector
 from regions.other_count import OtherCount
 from regions.other_money import OtherMoney
-from regions.region_MyMoney import MyMoney
-from root.logger import AviatorLogger
+from regions.my_money import MyMoney
+from logger import AviatorLogger
 
 from typing import Dict, Optional, Union
 

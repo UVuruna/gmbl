@@ -8,7 +8,7 @@ import queue
 from typing import Optional, Tuple
 from dataclasses import dataclass
 import pyautogui
-from root.logger import AviatorLogger
+from logger import AviatorLogger
 
 
 @dataclass

@@ -2,9 +2,9 @@
 # VERSION: 2.1
 # CHANGES: Fixed cluster ID mapping (removed +1), improved error handling
 
-from main.screen_reader import ScreenReader
+from core.screen_reader import ScreenReader
 from regions.base_region import Region
-from root.logger import AviatorLogger
+from logger import AviatorLogger
 from config import AppConstants, GamePhase
 
 import pickle

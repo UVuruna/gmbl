@@ -1,7 +1,7 @@
 # screen_reader.py
 
 from config import AppConstants
-from root.logger import AviatorLogger
+from logger import AviatorLogger
 
 import mss
 import pytesseract

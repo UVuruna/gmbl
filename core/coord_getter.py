@@ -1,7 +1,7 @@
 # coord_getter.py
 
 from config import AppConstants
-from root.logger import AviatorLogger
+from logger import AviatorLogger
 
 from pynput import mouse
 from typing import Literal, Dict, Tuple, List, Optional

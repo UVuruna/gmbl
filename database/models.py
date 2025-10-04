@@ -2,7 +2,7 @@
 
 from config import AppConstants
 from database.database import Database
-from root.logger import AviatorLogger
+from logger import AviatorLogger
 
 import sqlite3
 

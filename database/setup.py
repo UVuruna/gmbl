@@ -6,7 +6,7 @@ Run this to create the database and tables for the first time.
 """
 
 from database.models import DatabaseCreator
-from root.logger import AviatorLogger
+from logger import AviatorLogger
 
 
 def setup_database():
@@ -32,7 +32,7 @@ def setup_database():
 
 
 if __name__ == "__main__":
-    from root.logger import init_logging
+    from logger import init_logging
     from config import AppConstants
     
     init_logging(debug=AppConstants.debug)

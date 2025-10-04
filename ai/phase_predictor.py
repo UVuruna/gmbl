@@ -6,7 +6,7 @@ import pickle
 import mss
 import pyautogui
 import time
-from root.logger import AviatorLogger
+from logger import AviatorLogger
 
 
 class PhasePredictor:
@@ -85,7 +85,7 @@ class PhasePredictor:
 
 
 def main():
-    from root.logger import init_logging
+    from logger import init_logging
     
     init_logging()
     
@@ -94,7 +94,7 @@ def main():
     print("=" * 60)
     
     model_name = input("\nModel name (default 'game_phase_kmeans'): ").strip() or "game_phase_kmeans"
-    model_path = f"models/{model_name}.pkl"
+    model_path = f"data/models/{model_name}.pkl"
     
     delay = float(input("Delay per bookmaker in seconds (default 0.5): ").strip() or "0.5")
     

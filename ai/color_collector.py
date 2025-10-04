@@ -8,7 +8,7 @@ import sqlite3
 import time
 import threading
 import queue
-from root.logger import AviatorLogger
+from logger import AviatorLogger
 
 
 class ColorCollector:
@@ -135,7 +135,7 @@ class ColorCollector:
 
 
 def main():
-    from root.logger import init_logging
+    from logger import init_logging
     
     init_logging()
     

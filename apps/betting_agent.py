@@ -1,14 +1,14 @@
 # betting_agent.py
 # Lightweight betting agent - samo prati GamePhase, Score, MyMoney i betuje
 
-from main.screen_reader import ScreenReader
-from main.gui_controller import GUIController, BettingRequest
-from main.coord_manager import CoordsManager
+from core.screen_reader import ScreenReader
+from core.gui_controller import GUIController, BettingRequest
+from core.coord_manager import CoordsManager
 from regions.game_phase import GamePhaseDetector
 from regions.score import Score
-from regions.region_MyMoney import MyMoney
+from regions.my_money import MyMoney
 from config import GamePhase, BookmakerConfig, AppConstants
-from root.logger import init_logging, AviatorLogger
+from logger import init_logging, AviatorLogger
 
 import multiprocessing as mp
 from multiprocessing import Manager, Process, Queue

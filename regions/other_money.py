@@ -1,9 +1,9 @@
 # region_OtherMoney.py
 
 from config import AppConstants
-from main.screen_reader import ScreenReader
+from core.screen_reader import ScreenReader
 from regions.base_region import Region
-from root.logger import AviatorLogger
+from logger import AviatorLogger
 
 from typing import Optional
 

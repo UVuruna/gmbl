@@ -2,16 +2,17 @@
 # VERSION: 2.0 - Multi-bookmaker parallel collection
 # Supports 3-6 bookmakers simultaneously with multiprocessing
 
-from main.screen_reader import ScreenReader
-from main.coord_manager import CoordsManager
-from main.coord_getter import CoordGetter
+from core.screen_reader import ScreenReader
+from core.coord_manager import CoordsManager
+from core.coord_getter import CoordGetter
 from regions.score import Score
-from regions.region_MyMoney import MyMoney
+from regions.my_money import MyMoney
 from regions.other_count import OtherCount
 from regions.other_money import OtherMoney
 from regions.game_phase import GamePhaseDetector
-from root.logger import init_logging, AviatorLogger
+from logger import init_logging, AviatorLogger
 from config import AppConstants, GamePhase
+from multiprocessing.synchronize import Event as MPEvent
 
 import sqlite3
 import time
@@ -24,7 +25,7 @@ from multiprocessing import Process, Event
 
 class DataCollector:
     
-    def __init__(self, bookmaker_name: str, coords: Dict, collection_interval: float, shutdown_event: Event):
+    def __init__(self, bookmaker_name: str, coords: Dict, collection_interval: float, shutdown_event: MPEvent):
         self.bookmaker_name = bookmaker_name
         self.collection_interval = collection_interval
         self.shutdown_event = shutdown_event
@@ -264,7 +265,7 @@ class DataCollector:
 
 
 class CollectorProcess(Process):
-    def __init__(self, bookmaker_name: str, coords: Dict, interval: float, shutdown_event: Event):
+    def __init__(self, bookmaker_name: str, coords: Dict, interval: float, shutdown_event: MPEvent):
         super().__init__(name=f"Collector-{bookmaker_name}")
         self.bookmaker_name = bookmaker_name
         self.coords = coords

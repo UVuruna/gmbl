@@ -2,10 +2,10 @@
 # VERSION: 3.0 - OPTIMIZED BATCH PROCESSING
 # CHANGES: Batch queue system, better shutdown, performance monitoring
 
-from main.gui_controller import GUIController
-from main.bookmaker_process import BookmakerProcess
+from core.gui_controller import GUIController
+from core.bookmaker_process import BookmakerProcess
 from database.worker import DatabaseWorker
-from root.logger import AviatorLogger
+from logger import AviatorLogger
 
 from multiprocessing import Manager
 from typing import List, Tuple, Optional, Dict

@@ -8,7 +8,7 @@ Organizes coordinates by screen setup (number of bookmakers) and position (Left/
 import json
 import os
 from typing import Dict, Optional, List
-from root.logger import AviatorLogger
+from logger import AviatorLogger
 
 
 class CoordsManager:
