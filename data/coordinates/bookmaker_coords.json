@@ -1,0 +1,286 @@
+{
+  "3_bookmakers_console": {
+    "Left": {
+      "score_region": {
+        "left": 464,
+        "top": 547,
+        "width": 708,
+        "height": 153
+      },
+      "my_money_region": {
+        "left": 994,
+        "top": 285,
+        "width": 105,
+        "height": 25
+      },
+      "other_count_region": {
+        "left": 28,
+        "top": 423,
+        "width": 162,
+        "height": 16
+      },
+      "other_money_region": {
+        "left": 258,
+        "top": 391,
+        "width": 126,
+        "height": 26
+      },
+      "phase_region": {
+        "left": 652,
+        "top": 571,
+        "width": 325,
+        "height": 84
+      },
+      "play_amount_coords": [
+        672,
+        924
+      ],
+      "play_button_coords": [
+        820,
+        946
+      ]
+    },
+    "Center": {
+      "score_region": {
+        "left": 1745,
+        "top": 575,
+        "width": 739,
+        "height": 140
+      },
+      "my_money_region": {
+        "left": 2315,
+        "top": 323,
+        "width": 103,
+        "height": 26
+      },
+      "other_count_region": {
+        "left": 1313,
+        "top": 457,
+        "width": 137,
+        "height": 16
+      },
+      "other_money_region": {
+        "left": 1537,
+        "top": 426,
+        "width": 134,
+        "height": 26
+      },
+      "phase_region": {
+        "left": 1967,
+        "top": 610,
+        "width": 325,
+        "height": 85
+      },
+      "play_amount_coords": [
+        1977,
+        963
+      ],
+      "play_button_coords": [
+        2121,
+        972
+      ]
+    },
+    "Right": {
+      "score_region": {
+        "left": 3019,
+        "top": 518,
+        "width": 764,
+        "height": 151
+      },
+      "my_money_region": {
+        "left": 3603,
+        "top": 174,
+        "width": 113,
+        "height": 27
+      },
+      "other_count_region": {
+        "left": 2574,
+        "top": 309,
+        "width": 171,
+        "height": 20
+      },
+      "other_money_region": {
+        "left": 2801,
+        "top": 276,
+        "width": 135,
+        "height": 24
+      },
+      "phase_region": {
+        "left": 3238,
+        "top": 547,
+        "width": 331,
+        "height": 99
+      },
+      "play_amount_coords": [
+        3258,
+        1006
+      ],
+      "play_button_coords": [
+        3446,
+        1023
+      ]
+    }
+  },
+  "5_equal": {
+    "TL": {
+      "score_region": {
+        "left": 4279,
+        "top": 499,
+        "width": 732,
+        "height": 140
+      },
+      "my_money_region": {
+        "left": 4847,
+        "top": 277,
+        "width": 100,
+        "height": 25
+      },
+      "other_count_region": {
+        "left": 3867,
+        "top": 401,
+        "width": 152,
+        "height": 16
+      },
+      "other_money_region": {
+        "left": 4083,
+        "top": 373,
+        "width": 120,
+        "height": 23
+      },
+      "phase_region": {
+        "left": 4411,
+        "top": 492,
+        "width": 488,
+        "height": 154
+      }
+    },
+    "TC": {
+      "score_region": {
+        "left": 5556,
+        "top": 486,
+        "width": 777,
+        "height": 163
+      },
+      "my_money_region": {
+        "left": 6179,
+        "top": 170,
+        "width": 105,
+        "height": 31
+      },
+      "other_count_region": {
+        "left": 5134,
+        "top": 297,
+        "width": 153,
+        "height": 20
+      },
+      "other_money_region": {
+        "left": 5347,
+        "top": 269,
+        "width": 127,
+        "height": 26
+      },
+      "phase_region": {
+        "left": 5709,
+        "top": 481,
+        "width": 483,
+        "height": 143
+      }
+    },
+    "TR": {
+      "score_region": {
+        "left": 6878,
+        "top": 477,
+        "width": 670,
+        "height": 130
+      },
+      "my_money_region": {
+        "left": 7420,
+        "top": 214,
+        "width": 130,
+        "height": 30
+      },
+      "other_count_region": {
+        "left": 6416,
+        "top": 339,
+        "width": 158,
+        "height": 19
+      },
+      "other_money_region": {
+        "left": 6617,
+        "top": 313,
+        "width": 135,
+        "height": 18
+      },
+      "phase_region": {
+        "left": 6972,
+        "top": 466,
+        "width": 491,
+        "height": 145
+      }
+    },
+    "BL": {
+      "score_region": {
+        "left": 4339,
+        "top": 1614,
+        "width": 617,
+        "height": 141
+      },
+      "my_money_region": {
+        "left": 4867,
+        "top": 1346,
+        "width": 130,
+        "height": 24
+      },
+      "other_count_region": {
+        "left": 3857,
+        "top": 1469,
+        "width": 159,
+        "height": 19
+      },
+      "other_money_region": {
+        "left": 4052,
+        "top": 1442,
+        "width": 139,
+        "height": 22
+      },
+      "phase_region": {
+        "left": 4438,
+        "top": 1607,
+        "width": 469,
+        "height": 162
+      }
+    },
+    "BC": {
+      "score_region": {
+        "left": 5631,
+        "top": 1550,
+        "width": 660,
+        "height": 149
+      },
+      "my_money_region": {
+        "left": 6174,
+        "top": 1321,
+        "width": 127,
+        "height": 22
+      },
+      "other_count_region": {
+        "left": 5155,
+        "top": 1443,
+        "width": 138,
+        "height": 19
+      },
+      "other_money_region": {
+        "left": 5344,
+        "top": 1414,
+        "width": 146,
+        "height": 23
+      },
+      "phase_region": {
+        "left": 5718,
+        "top": 1545,
+        "width": 447,
+        "height": 145
+      }
+    }
+  }
+}
