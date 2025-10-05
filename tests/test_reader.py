@@ -1,7 +1,7 @@
 # test_screen_reader.py
 
-from main.screen_reader import ScreenReader
-from main.coord_getter import CoordGetter
+from core.screen_reader import ScreenReader
+from core.coord_getter import CoordGetter
 import time
 
 def test_screen_reader():

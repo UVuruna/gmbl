@@ -1,15 +1,15 @@
 # debug_monitor.py
 # Real-time OCR debug monitor - loguje šta vidi na svim regionima
 
-from main.screen_reader import ScreenReader
-from main.coord_manager import CoordsManager
+from core.screen_reader import ScreenReader
+from core.coord_manager import CoordsManager
 from regions.game_phase import GamePhaseDetector
 from regions.score import Score
-from regions.region_MyMoney import MyMoney
+from regions.my_money import MyMoney
 from regions.other_count import OtherCount
 from regions.other_money import OtherMoney
 from config import GamePhase, AppConstants
-from root.logger import init_logging, AviatorLogger
+from logger import init_logging, AviatorLogger
 
 import time
 import signal
