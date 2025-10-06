@@ -28,3 +28,87 @@ Thumbs.db
 # --- Documentation cache ---
 documentation/
 
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+logs/
+*.log
+
+# Databases
+data/databases/*.db
+data/databases/*.db-*
+*.sqlite
+*.sqlite3
+
+# Backups
+*.backup
+*.bak
+*.old
+
+# Screenshots
+tests/screenshots/*.png
+tests/screenshots/*.jpg
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+
+# Models (optional - comment out if you want to track models)
+data/models/*.pkl
+data/models/*.h5
+data/models/*.pth
+
+# Coordinates - IMPORTANT: Backup before committing!
+# Uncomment to track your coordinates (be careful with sensitive screen positions):
+# !data/coordinates/bookmaker_coords.json
+
+# Sensitive data
+*.env
+.env
+secrets/
+credentials/
+
+# Test files
+test_output/
+*.test

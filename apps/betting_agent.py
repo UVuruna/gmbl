@@ -1,301 +1,399 @@
-# betting_agent.py
-# Lightweight betting agent - samo prati GamePhase, Score, MyMoney i betuje
+# apps/betting_agent.py
+# VERSION: 2.0
+# PROGRAM 3: Automated betting agent
+# Places bets using configured strategy
 
+import sys
+import time
+import sqlite3
+from pathlib import Path
+from typing import Dict, Optional
+from multiprocessing import Process, Queue
+from multiprocessing.synchronize import Lock as LockType
+from datetime import datetime
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from apps.base_app import BaseAviatorApp, get_number_input
 from core.screen_reader import ScreenReader
-from core.gui_controller import GUIController, BettingRequest
-from core.coord_manager import CoordsManager
-from regions.game_phase import GamePhaseDetector
+from core.gui_controller import GUIController
 from regions.score import Score
 from regions.my_money import MyMoney
-from config import GamePhase, BookmakerConfig, AppConstants
-from logger import init_logging, AviatorLogger
-
-import multiprocessing as mp
-from multiprocessing import Manager, Process, Queue
-import time
-import signal
-import sys
+from regions.game_phase import GamePhaseDetector
+from logger import AviatorLogger
 
 
-class BettingWorker(Process):
-    """Lightweight worker - samo prati fazu i betuje"""
+class BettingAgent(BaseAviatorApp):
+    """
+    Automated betting agent.
     
-    def __init__(
-        self,
-        bookmaker_name: str,
-        betting_queue: Queue,
-        shutdown_event,
-        play_amount_coords: tuple,
-        play_button_coords: tuple,
-        bet_sequence: list,
-        auto_stop: float,
-        phase_region: dict,
-        score_region: dict,
-        my_money_region: dict
-    ):
-        super().__init__(name=f"Bet-{bookmaker_name}")
-        
-        self.bookmaker_name = bookmaker_name
-        self.betting_queue = betting_queue
-        self.shutdown_event = shutdown_event
-        
-        self.play_amount_coords = play_amount_coords
-        self.play_button_coords = play_button_coords
-        self.bet_sequence = bet_sequence
-        self.auto_stop = auto_stop
-        
-        self.phase_region = phase_region
-        self.score_region = score_region
-        self.my_money_region = my_money_region
-        
-        self.current_bet_index = 0
-        self.bet_placed_for_round = False
-        self.current_phase = None
-        self.previous_phase = None
-        
-        self.logger = None
-        self.phase_detector = None
-        self.score_reader = None
-        self.money_reader = None
+    Features:
+    - Monitors: my_money, score, phase
+    - Controls: bet_amount, play_button, auto_play
+    - Transaction-safe: One bet at a time using locks
+    - Logs all bets to database
+    """
     
-    def run(self):
-        init_logging()
-        self.logger = AviatorLogger.get_logger(f"BetAgent-{self.bookmaker_name}")
-        self.logger.info(f"Betting agent started for {self.bookmaker_name}")
-        
-        # Initialize readers
-        self.phase_detector = GamePhaseDetector(self.phase_region)
-        self.score_reader = Score(
-            self.score_region,
-            self.my_money_region,
-            self.auto_stop
-        )
-        self.money_reader = MyMoney(self.my_money_region)
-        
-        try:
-            while not self.shutdown_event.is_set():
-                self._betting_cycle()
-                time.sleep(0.1)
-        except Exception as e:
-            self.logger.error(f"Agent error: {e}", exc_info=True)
-        finally:
-            self.logger.info(f"Betting agent stopped for {self.bookmaker_name}")
-    
-    def _betting_cycle(self):
-        """Main betting cycle"""
-        # Read phase
-        self.previous_phase = self.current_phase
-        self.current_phase = self.phase_detector.detect_phase()
-        
-        # Phase transition detection
-        if self.current_phase != self.previous_phase:
-            self.logger.info(f"Phase: {self.previous_phase} → {self.current_phase}")
-            
-            # WAITING → COUNTDOWN: place bet
-            if self.current_phase == GamePhase.WAITING:
-                self.bet_placed_for_round = False
-            
-            if self.current_phase == GamePhase.COUNTDOWN and not self.bet_placed_for_round:
-                self._place_bet()
-            
-            # CRASHED → RESULT: check outcome
-            if self.current_phase == GamePhase.CRASHED:
-                self._check_outcome()
-    
-    def _place_bet(self):
-        """Place bet for next round"""
-        bet_amount = self.bet_sequence[self.current_bet_index]
-        
-        request = BettingRequest(
-            bookmaker_name=self.bookmaker_name,
-            bet_amount=bet_amount,
-            play_amount_coords=self.play_amount_coords,
-            play_button_coords=self.play_button_coords,
-            request_id=f"{self.bookmaker_name}_{time.time()}",
-            timestamp=time.time()
-        )
-        
-        try:
-            self.betting_queue.put(request, timeout=1.0)
-            self.bet_placed_for_round = True
-            self.logger.info(f"Bet placed: {bet_amount} RSD (index: {self.current_bet_index})")
-        except:
-            self.logger.warning("Betting queue full")
-    
-    def _check_outcome(self):
-        """Check round outcome"""
-        try:
-            score_data = self.score_reader.read_text()
-            money_data = self.money_reader.read_text()
-            
-            if score_data and 'result' in score_data:
-                result = score_data['result']
-                final_score = score_data['score']
-                current_money = money_data.get('money', 0) if money_data else 0
-                
-                if result:
-                    self.logger.info(f"WIN! Score: {final_score:.2f}x, Money: {current_money:.2f}")
-                    self.current_bet_index = 0  # Reset on win
-                else:
-                    self.logger.info(f"LOSS. Score: {final_score:.2f}x, Money: {current_money:.2f}")
-                    self.current_bet_index = (self.current_bet_index + 1) % len(self.bet_sequence)
-        except Exception as e:
-            self.logger.error(f"Error checking outcome: {e}")
-
-
-class BettingAgentOrchestrator:
-    """Orchestrator for betting agents"""
+    DATABASE_NAME = "betting_history.db"
     
     def __init__(self):
-        self.manager = Manager()
-        self.betting_queue = self.manager.Queue(maxsize=100)
-        self.shutdown_event = self.manager.Event()
+        super().__init__("BettingAgent")
+        self.db_path = Path("data/databases") / self.DATABASE_NAME
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
         
-        self.gui_controller = None
-        self.workers = []
-        self.logger = None
+        # Shared lock for bet transactions
+        from multiprocessing import Manager
+        manager = Manager()
+        self.bet_lock: LockType = manager.Lock()  # Type hint added
     
-    def add_bookmaker(
-        self,
-        name: str,
-        auto_stop: float,
-        bet_sequence: list,
-        play_amount_coords: tuple,
-        play_button_coords: tuple,
-        phase_region: dict,
-        score_region: dict,
-        my_money_region: dict
-    ):
-        """Add betting worker"""
-        worker = BettingWorker(
-            bookmaker_name=name,
-            betting_queue=self.betting_queue,
-            shutdown_event=self.shutdown_event,
-            play_amount_coords=play_amount_coords,
-            play_button_coords=play_button_coords,
-            bet_sequence=bet_sequence,
-            auto_stop=auto_stop,
-            phase_region=phase_region,
-            score_region=score_region,
-            my_money_region=my_money_region
-        )
-        self.workers.append(worker)
-        self.logger.info(f"Added betting worker: {name}")
+    def setup_database(self):
+        """Create database tables."""
+        self.logger.info("Setting up betting database...")
+        
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Betting history table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS bets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bookmaker TEXT NOT NULL,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                bet_amount REAL NOT NULL,
+                auto_stop REAL,
+                final_score REAL,
+                money_before REAL,
+                money_after REAL,
+                profit REAL,
+                status TEXT
+            )
+        ''')
+        
+        # Index
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_bets_bookmaker 
+            ON bets(bookmaker, timestamp)
+        ''')
+        
+        conn.commit()
+        conn.close()
+        
+        self.logger.info(f"Betting database ready: {self.db_path}")
     
-    def start(self):
-        """Start all workers"""
-        init_logging()
-        self.logger = AviatorLogger.get_logger("BettingOrchestrator")
-        self.logger.info("Starting betting agent orchestrator")
+    def get_betting_strategy(self) -> Dict:
+        """Get betting strategy from user."""
+        print("\n" + "="*60)
+        print("BETTING STRATEGY CONFIGURATION")
+        print("="*60)
         
-        # Start GUI controller
-        self.gui_controller = GUIController(self.betting_queue)
-        self.gui_controller.start()
-        self.logger.info("GUI controller started")
+        strategy = {}
         
-        # Start workers
-        for worker in self.workers:
-            worker.start()
-            self.logger.info(f"Started: {worker.name}")
-        
-        self.logger.info(f"Betting agent running with {len(self.workers)} bookmakers")
-    
-    def stop(self):
-        """Stop all workers"""
-        self.logger.info("Stopping betting agent...")
-        
-        self.shutdown_event.set()
-        
-        if self.gui_controller:
-            self.gui_controller.stop()
-        
-        for worker in self.workers:
-            if worker.is_alive():
-                worker.join(timeout=3.0)
-                if worker.is_alive():
-                    worker.terminate()
-        
-        self.manager.shutdown()
-        self.logger.info("Betting agent stopped")
-
-
-def signal_handler(sig, frame):
-    """Handle Ctrl+C"""
-    print("\nShutting down betting agent...")
-    if orchestrator:
-        orchestrator.stop()
-    sys.exit(0)
-
-
-orchestrator = None
-
-def main():
-    global orchestrator
-    
-    signal.signal(signal.SIGINT, signal_handler)
-    
-    init_logging()
-    logger = AviatorLogger.get_logger("Main")
-    logger.info("=" * 60)
-    logger.info("BETTING AGENT - LIGHTWEIGHT BETTING SYSTEM")
-    logger.info("=" * 60)
-    
-    try:
-        coords_manager = CoordsManager()
-        
-        # Load bookmaker configurations
-        config_name = input("Configuration name (e.g., '3_bookmakers_console'): ").strip()
-        bookmakers = ['Left', 'Center', 'Right']  # Positions
-        
-        orchestrator = BettingAgentOrchestrator()
-        
-        for position in bookmakers:
+        # Bet amount
+        while True:
             try:
-                coords = coords_manager.load_coordinates(config_name, position)
-                
-                # Choose betting style
-                print(f"\nBetting style for {position}:")
-                print("1=Cautious, 2=Balanced, 3=Risky, 4=Crazy, 5=Addict, 6=All-in")
-                choice = int(input("Choose (1-6): ") or "2")
-                
-                styles = {
-                    1: BookmakerConfig.bet_style['cautious'],
-                    2: BookmakerConfig.bet_style['balanced'],
-                    3: BookmakerConfig.bet_style['risky'],
-                    4: BookmakerConfig.bet_style['crazy'],
-                    5: BookmakerConfig.bet_style['addict'],
-                    6: BookmakerConfig.bet_style['all-in']
-                }
-                bet_sequence = styles.get(choice, BookmakerConfig.bet_style['balanced'])
-                
-                orchestrator.add_bookmaker(
-                    name=position,
-                    auto_stop=BookmakerConfig.auto_stop,
-                    bet_sequence=bet_sequence,
-                    play_amount_coords=coords['play_amount_coords'],
-                    play_button_coords=coords['play_button_coords'],
-                    phase_region=coords['phase_region'],
-                    score_region=coords['score_region'],
-                    my_money_region=coords['my_money_region']
-                )
-            except Exception as e:
-                logger.warning(f"Could not load {position}: {e}")
+                bet_amount = float(input("\nBet amount: ").strip())
+                if bet_amount > 0:
+                    strategy['bet_amount'] = bet_amount
+                    break
+                print("Bet amount must be positive")
+            except ValueError:
+                print("Invalid input")
         
-        if len(orchestrator.workers) == 0:
-            logger.error("No bookmakers configured!")
+        # Auto stop
+        use_auto_stop = input("\nUse auto stop? (yes/no): ").strip().lower()
+        if use_auto_stop in ['yes', 'y']:
+            while True:
+                try:
+                    auto_stop = float(input("Auto stop multiplier (e.g., 2.0): ").strip())
+                    if auto_stop > 1.0:
+                        strategy['auto_stop'] = auto_stop
+                        break
+                    print("Auto stop must be > 1.0")
+                except ValueError:
+                    print("Invalid input")
+        else:
+            strategy['auto_stop'] = None
+        
+        # Betting mode
+        print("\nBetting mode:")
+        print("  1. Every round")
+        print("  2. Skip N rounds after loss")
+        print("  3. Martingale (double after loss)")
+        
+        mode = input("Mode (1-3): ").strip()
+        strategy['mode'] = mode
+        
+        if mode == '2':
+            skip_rounds = int(input("Skip how many rounds after loss? ").strip())
+            strategy['skip_rounds'] = skip_rounds
+        
+        return strategy
+    
+    def create_process(
+        self, 
+        bookmaker: str,
+        layout: str,
+        position: str,
+        coords: Dict,
+        **kwargs
+    ) -> Optional[Process]:
+        """Create betting process for bookmaker."""
+        strategy = kwargs.get('strategy', {})
+        
+        process = BettingProcess(
+            bookmaker_name=bookmaker,
+            coords=coords,
+            db_path=self.db_path,
+            strategy=strategy,
+            bet_lock=self.bet_lock,
+            shutdown_event=self.shutdown_event
+        )
+        return process
+    
+    def run(self):
+        """Main run method."""
+        print("\n" + "="*60)
+        print("🎮 BETTING AGENT v2.0")
+        print("="*60)
+        print("\nAutomated bet placement with:")
+        print("  • Configurable strategy")
+        print("  • Transaction-safe betting")
+        print("  • Full history logging")
+        print("="*60)
+        
+        # Setup database
+        self.setup_database()
+        
+        # Get betting strategy
+        strategy = self.get_betting_strategy()
+        
+        # Get number of bookmakers
+        num_bookmakers = get_number_input(
+            "\nHow many bookmakers to bet on? (1-6): ", 1, 6
+        )
+        
+        # Setup bookmakers
+        bookmakers_config = self.setup_bookmakers_interactive(num_bookmakers)
+        
+        # Verify regions
+        if not self.verify_regions(bookmakers_config):
             return
         
-        orchestrator.start()
+        # Confirm before starting
+        print("\n" + "="*60)
+        print("⚠️  WARNING: Betting will start automatically!")
+        print("="*60)
+        print(f"Strategy: {strategy}")
+        print(f"Bookmakers: {len(bookmakers_config)}")
+        confirm = input("\nStart betting? (yes/no): ").strip().lower()
         
-        # Keep alive
-        while True:
-            time.sleep(1)
+        if confirm not in ['yes', 'y']:
+            print("Cancelled")
+            return
+        
+        # Start processes
+        self.start_processes(bookmakers_config, strategy=strategy)
+        
+        # Wait
+        print("\n🎮 Betting active... (Ctrl+C to stop)")
+        self.wait_for_processes()
+
+
+class BettingProcess(Process):
+    """Worker process for automated betting."""
     
-    except Exception as e:
-        logger.critical(f"Critical error: {e}", exc_info=True)
-        if orchestrator:
-            orchestrator.stop()
+    def __init__(
+        self, 
+        bookmaker_name: str,
+        coords: Dict,
+        db_path: Path,
+        strategy: Dict,
+        bet_lock: LockType,  # Fixed type hint
+        shutdown_event
+    ):
+        super().__init__(name=f"BettingAgent-{bookmaker_name}")
+        self.bookmaker_name = bookmaker_name
+        self.coords = coords
+        self.db_path = db_path
+        self.strategy = strategy
+        self.bet_lock = bet_lock
+        self.shutdown_event = shutdown_event
+        
+        self.bet_queue = Queue(maxsize=100)
+    
+    def setup_components(self):
+        """Setup readers and controller."""
+        # Screen readers
+        self.score_reader = ScreenReader(self.coords['score_region'])
+        self.my_money_reader = ScreenReader(self.coords['my_money_region'])
+        self.phase_reader = ScreenReader(self.coords['phase_region'])
+        
+        self.score = Score(self.score_reader)
+        self.my_money = MyMoney(self.my_money_reader)
+        self.phase_detector = GamePhaseDetector(self.phase_reader)
+        
+        # GUI controller
+        self.gui = GUIController()
+    
+    def place_bet(self, bet_amount: float, auto_stop: Optional[float]):
+        """
+        Place a bet (transaction-safe).
+        
+        Args:
+            bet_amount: Amount to bet
+            auto_stop: Auto stop multiplier (or None)
+        """
+        logger = AviatorLogger.get_logger(f"BettingAgent-{self.bookmaker_name}")
+        
+        # Acquire lock - only one bet at a time across all processes
+        with self.bet_lock:
+            try:
+                money_before = self.my_money.read_money()
+                
+                # Click bet amount field
+                bet_coords = self.coords['bet_amount_coords']
+                center_x = bet_coords['left'] + bet_coords['width'] // 2
+                center_y = bet_coords['top'] + bet_coords['height'] // 2
+                
+                self.gui.click(center_x, center_y)
+                time.sleep(0.1)
+                
+                # Clear and enter amount
+                self.gui.clear_field()
+                self.gui.type_text(str(bet_amount))
+                time.sleep(0.1)
+                
+                # Set auto stop if needed
+                if auto_stop:
+                    auto_coords = self.coords['auto_play_coords']
+                    auto_x = auto_coords['left'] + auto_coords['width'] // 2
+                    auto_y = auto_coords['top'] + auto_coords['height'] // 2
+                    
+                    self.gui.click(auto_x, auto_y)
+                    time.sleep(0.1)
+                    self.gui.clear_field()
+                    self.gui.type_text(str(auto_stop))
+                    time.sleep(0.1)
+                
+                # Click play button
+                play_coords = self.coords['play_button_coords']
+                play_x = play_coords['left'] + play_coords['width'] // 2
+                play_y = play_coords['top'] + play_coords['height'] // 2
+                
+                self.gui.click(play_x, play_y)
+                
+                logger.info(f"Bet placed: {bet_amount} (auto stop: {auto_stop})")
+                
+                # Wait for round to finish
+                time.sleep(2)
+                while self.phase_detector.get_phase() == 'FLYING':
+                    time.sleep(0.2)
+                
+                # Get final results
+                time.sleep(1)
+                final_score = self.score.read_score()
+                money_after = self.my_money.read_money()
+                
+                profit = (money_after or 0) - (money_before or 0)
+                status = 'WIN' if profit > 0 else 'LOSS'
+                
+                # Log bet
+                self.bet_queue.put({
+                    'bookmaker': self.bookmaker_name,
+                    'timestamp': datetime.now().isoformat(),
+                    'bet_amount': bet_amount,
+                    'auto_stop': auto_stop,
+                    'final_score': final_score,
+                    'money_before': money_before,
+                    'money_after': money_after,
+                    'profit': profit,
+                    'status': status
+                })
+                
+                logger.info(
+                    f"Result: {final_score:.2f}x, Profit: {profit:.2f} ({status})"
+                )
+                
+            except Exception as e:
+                logger.error(f"Bet placement error: {e}", exc_info=True)
+    
+    def betting_loop(self):
+        """Main betting loop."""
+        logger = AviatorLogger.get_logger(f"BettingAgent-{self.bookmaker_name}")
+        logger.info("Starting betting agent")
+        
+        bet_count = 0
+        
+        while not self.shutdown_event.is_set():
+            try:
+                # Wait for WAITING phase
+                current_phase = self.phase_detector.get_phase()
+                
+                if current_phase == 'WAITING':
+                    # Place bet
+                    bet_amount = self.strategy.get('bet_amount', 100)
+                    auto_stop = self.strategy.get('auto_stop')
+                    
+                    self.place_bet(bet_amount, auto_stop)
+                    bet_count += 1
+                    
+                    # Batch insert
+                    if self.bet_queue.qsize() >= 10:
+                        self.batch_insert_bets()
+                
+                time.sleep(0.5)
+                
+            except Exception as e:
+                logger.error(f"Betting loop error: {e}", exc_info=True)
+                time.sleep(1)
+        
+        # Final batch insert
+        self.batch_insert_bets()
+        logger.info(f"Betting finished. Total bets: {bet_count}")
+    
+    def batch_insert_bets(self):
+        """Batch insert bet history."""
+        if self.bet_queue.empty():
+            return
+        
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        batch = []
+        while not self.bet_queue.empty():
+            try:
+                batch.append(self.bet_queue.get_nowait())
+            except:
+                break
+        
+        if batch:
+            cursor.executemany('''
+                INSERT INTO bets 
+                (bookmaker, timestamp, bet_amount, auto_stop, final_score, 
+                 money_before, money_after, profit, status)
+                VALUES 
+                (:bookmaker, :timestamp, :bet_amount, :auto_stop, :final_score,
+                 :money_before, :money_after, :profit, :status)
+            ''', batch)
+            
+            conn.commit()
+        
+        conn.close()
+    
+    def run(self):
+        """Process main loop."""
+        logger = AviatorLogger.get_logger(f"BettingAgent-{self.bookmaker_name}")
+        logger.info(f"Starting betting agent for {self.bookmaker_name}")
+        
+        try:
+            self.setup_components()
+            self.betting_loop()
+        except Exception as e:
+            logger.error(f"Process error: {e}", exc_info=True)
+        finally:
+            logger.info(f"Betting agent stopped: {self.bookmaker_name}")
 
 
 if __name__ == "__main__":
-    main()
+    app = BettingAgent()
+    app.run()
