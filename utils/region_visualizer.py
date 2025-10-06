@@ -1,14 +1,18 @@
 # utils/region_visualizer.py
-# VERSION: 1.0
-# PURPOSE: Visualize and fine-tune screen regions for OCR
+# VERSION: 1.0.2
+# CHANGES: Fixed imports and JSON structure handling
 
 import cv2
 import numpy as np
 import mss
 from PIL import Image
 import time
-from typing import Dict, List, Tuple, Optional
+import sys
 from pathlib import Path
+from typing import Dict, List, Tuple, Optional
+
+# Add parent directory to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.coord_manager import CoordsManager
 from logger import init_logging, AviatorLogger
@@ -46,8 +50,8 @@ class RegionVisualizer:
         Initialize visualizer.
         
         Args:
-            config_name: Configuration name (e.g., '3_bookmakers_console')
-            position: Position name (e.g., 'Left', 'Center', 'Right')
+            config_name: Configuration name (e.g., '6')
+            position: Position name (e.g., 'TL', 'TC', 'TR', 'BL', 'BC')
         """
         init_logging()
         self.logger = AviatorLogger.get_logger("RegionVisualizer")
@@ -424,14 +428,14 @@ class RegionVisualizer:
 def main():
     """Main entry point."""
     print("="*60)
-    print("REGION VISUALIZER v1.0")
+    print("REGION VISUALIZER v1.0.2")
     print("="*60)
     
     # Get configuration
     coords_manager = CoordsManager()
     coords_manager.display_saved_configs()
     
-    config_name = input("\nConfiguration name: ").strip()
+    config_name = input("\nConfiguration name (e.g., '6'): ").strip()
     if not config_name:
         print("No configuration specified!")
         return
@@ -440,10 +444,13 @@ def main():
     positions = coords_manager.get_available_positions(config_name)
     if not positions:
         print(f"No positions found for configuration: {config_name}")
+        print("\nTIP: Configuration name is the TOP-LEVEL key in JSON.")
+        print("For your JSON, use: '6'")
+        print("Then choose position: TL, TC, TR, BL, or BC")
         return
     
     print(f"\nAvailable positions: {', '.join(positions)}")
-    position = input("Position: ").strip()
+    position = input("Position (e.g., 'TL'): ").strip()
     
     if position not in positions:
         print(f"Invalid position: {position}")

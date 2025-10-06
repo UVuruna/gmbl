@@ -1,0 +1,20 @@
+SAME SERVERS:
+	Mozzart == MaxBet
+	Admiral == Meridian
+
+MOZZART - Done
+  .navigatio-wrapper = hide
+  .game-header = hide
+  .casino-game-fullscreen = height 100%, width 100%, padding 0
+  .game-holder = height 100%
+
+BALKANBET - Done
+  .header-wrap = hide
+  .content-frame = bottom 0, top 0
+  .game__container = max-width unset, padding 0
+
+SOCCER - Done
+  .widget_carousel = hide
+  .DESK-nav-top = hide
+  .lobby-game--header = height 0
+  .DESK-content = height 100 vh

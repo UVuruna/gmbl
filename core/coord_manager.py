@@ -14,7 +14,7 @@ from logger import AviatorLogger
 class CoordsManager:
     """Manages saving and loading of bookmaker coordinates to/from JSON file."""
     
-    DEFAULT_FILE = "bookmaker_coords.json"
+    DEFAULT_FILE = "data/coordinates/bookmaker_coords.json"
     POSITIONS = ["Left", "Center", "Right"]
     
     def __init__(self, coords_file: str = DEFAULT_FILE):
