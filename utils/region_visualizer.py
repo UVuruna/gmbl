@@ -1,15 +1,15 @@
 # utils/region_visualizer.py
-# VERSION: 1.0.2
-# CHANGES: Fixed imports and JSON structure handling
+# VERSION: 1.0.3
+# PURPOSE: Visualize screen regions - saves image instead of showing window
+# CHANGES: Fixed OpenCV GUI issue - saves annotated screenshot instead
 
-import cv2
 import numpy as np
 import mss
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import time
 import sys
+from typing import Dict, Tuple
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -21,18 +21,18 @@ from logger import init_logging, AviatorLogger
 class RegionVisualizer:
     """
     Visualize saved screen regions with overlay rectangles.
-    Allows fine-tuning of region positions.
+    Saves annotated screenshot since OpenCV GUI doesn't work.
     """
     
-    # Colors for different region types (BGR format)
+    # Colors for different region types (RGB format for PIL)
     COLORS = {
         'score_region': (0, 255, 0),        # Green
-        'my_money_region': (255, 0, 0),     # Blue
-        'other_count_region': (0, 165, 255), # Orange
-        'other_money_region': (0, 255, 255), # Yellow
+        'my_money_region': (0, 0, 255),     # Blue
+        'other_count_region': (255, 165, 0), # Orange
+        'other_money_region': (255, 255, 0), # Yellow
         'phase_region': (255, 0, 255),      # Magenta
-        'play_amount_coords': (255, 255, 255), # White (point)
-        'play_button_coords': (128, 128, 128), # Gray (point)
+        'play_amount_coords': (255, 255, 255), # White
+        'play_button_coords': (128, 128, 128), # Gray
     }
     
     LABELS = {
@@ -46,13 +46,7 @@ class RegionVisualizer:
     }
     
     def __init__(self, config_name: str, position: str):
-        """
-        Initialize visualizer.
-        
-        Args:
-            config_name: Configuration name (e.g., '6')
-            position: Position name (e.g., 'TL', 'TC', 'TR', 'BL', 'BC')
-        """
+        """Initialize visualizer."""
         init_logging()
         self.logger = AviatorLogger.get_logger("RegionVisualizer")
         
@@ -70,16 +64,10 @@ class RegionVisualizer:
         
         # Screen capture
         self.sct = mss.mss()
-        
-        # Adjustments for fine-tuning
-        self.adjustments = {}
-        
-        # Window name
-        self.window_name = f"Region Visualizer - {config_name}/{position}"
     
-    def capture_screen(self) -> np.ndarray:
-        """Capture entire screen or specific monitor."""
-        # Get screen dimensions from regions
+    def capture_screen(self) -> Tuple[Image.Image, Dict]:
+        """Capture screen region containing all coordinates."""
+        # Get bounding box
         all_coords = []
         
         for key, value in self.coords.items():
@@ -110,284 +98,216 @@ class RegionVisualizer:
             'height': bottom - top
         }
         
-        self.capture_region = region
-        
         sct_img = self.sct.grab(region)
-        img_rgb = np.array(Image.frombytes('RGB', sct_img.size, sct_img.rgb))
-        img_bgr = img_rgb[:, :, ::-1].copy()
+        img = Image.frombytes('RGB', sct_img.size, sct_img.rgb)
         
-        return img_bgr
+        return img, region
     
-    def draw_regions(self, img: np.ndarray) -> np.ndarray:
-        """
-        Draw all regions on image with labels.
+    def draw_regions(self, img: Image.Image, capture_region: Dict) -> Image.Image:
+        """Draw all regions on image with labels."""
+        draw = ImageDraw.Draw(img, 'RGBA')
         
-        Args:
-            img: Input image
-            
-        Returns:
-            Image with drawn regions
-        """
-        overlay = img.copy()
+        # Try to load a font
+        try:
+            font = ImageFont.truetype("arial.ttf", 16)
+            font_small = ImageFont.truetype("arial.ttf", 12)
+        except:
+            font = ImageFont.load_default()
+            font_small = ImageFont.load_default()
         
-        # Calculate offset from capture region
-        offset_x = self.capture_region['left']
-        offset_y = self.capture_region['top']
+        offset_x = capture_region['left']
+        offset_y = capture_region['top']
         
         # Draw each region
         for key, value in self.coords.items():
             color = self.COLORS.get(key, (255, 255, 255))
             label = self.LABELS.get(key, key)
             
-            # Apply adjustments if any
-            adjustment = self.adjustments.get(key, (0, 0, 0, 0))
-            
             if isinstance(value, dict) and 'left' in value:
                 # Rectangle region
-                left = value['left'] - offset_x + adjustment[0]
-                top = value['top'] - offset_y + adjustment[1]
-                width = value['width'] + adjustment[2]
-                height = value['height'] + adjustment[3]
+                left = value['left'] - offset_x
+                top = value['top'] - offset_y
+                right = left + value['width']
+                bottom = top + value['height']
                 
-                # Draw rectangle
-                cv2.rectangle(
-                    overlay,
-                    (left, top),
-                    (left + width, top + height),
-                    color,
-                    2
+                # Draw rectangle with transparency
+                draw.rectangle(
+                    [(left, top), (right, bottom)],
+                    outline=color,
+                    width=3
+                )
+                
+                # Draw semi-transparent fill
+                overlay_color = color + (30,)  # Add alpha
+                draw.rectangle(
+                    [(left, top), (right, bottom)],
+                    fill=overlay_color
                 )
                 
                 # Draw label background
-                label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
-                cv2.rectangle(
-                    overlay,
-                    (left, top - label_size[1] - 8),
-                    (left + label_size[0] + 4, top),
-                    color,
-                    -1
+                text_bbox = draw.textbbox((0, 0), label, font=font)
+                text_width = text_bbox[2] - text_bbox[0]
+                text_height = text_bbox[3] - text_bbox[1]
+                
+                draw.rectangle(
+                    [(left, top - text_height - 6), (left + text_width + 6, top)],
+                    fill=color
                 )
                 
                 # Draw label text
-                cv2.putText(
-                    overlay,
+                draw.text(
+                    (left + 3, top - text_height - 3),
                     label,
-                    (left + 2, top - 4),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.5,
-                    (0, 0, 0),
-                    1
+                    fill=(0, 0, 0),
+                    font=font
                 )
                 
                 # Draw center crosshair
-                center_x = left + width // 2
-                center_y = top + height // 2
-                cv2.drawMarker(
-                    overlay,
-                    (center_x, center_y),
-                    color,
-                    cv2.MARKER_CROSS,
-                    10,
-                    1
+                center_x = left + value['width'] // 2
+                center_y = top + value['height'] // 2
+                cross_size = 15
+                
+                draw.line(
+                    [(center_x - cross_size, center_y), (center_x + cross_size, center_y)],
+                    fill=color,
+                    width=2
+                )
+                draw.line(
+                    [(center_x, center_y - cross_size), (center_x, center_y + cross_size)],
+                    fill=color,
+                    width=2
+                )
+                
+                # Draw coordinates text
+                coord_text = f"({value['left']}, {value['top']}) {value['width']}x{value['height']}"
+                draw.text(
+                    (left + 3, bottom + 3),
+                    coord_text,
+                    fill=color,
+                    font=font_small
                 )
                 
             elif isinstance(value, list) and len(value) == 2:
                 # Point coordinate
-                x = value[0] - offset_x + adjustment[0]
-                y = value[1] - offset_y + adjustment[1]
+                x = value[0] - offset_x
+                y = value[1] - offset_y
                 
                 # Draw circle
-                cv2.circle(overlay, (x, y), 10, color, 2)
+                radius = 10
+                draw.ellipse(
+                    [(x - radius, y - radius), (x + radius, y + radius)],
+                    outline=color,
+                    width=3
+                )
                 
                 # Draw crosshair
-                cv2.drawMarker(
-                    overlay,
-                    (x, y),
-                    color,
-                    cv2.MARKER_CROSS,
-                    20,
-                    2
+                cross_size = 20
+                draw.line(
+                    [(x - cross_size, y), (x + cross_size, y)],
+                    fill=color,
+                    width=2
+                )
+                draw.line(
+                    [(x, y - cross_size), (x, y + cross_size)],
+                    fill=color,
+                    width=2
                 )
                 
                 # Draw label
-                cv2.putText(
-                    overlay,
-                    label,
+                draw.text(
                     (x + 15, y - 15),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.5,
-                    color,
-                    1
+                    label,
+                    fill=color,
+                    font=font
+                )
+                
+                # Draw coordinates
+                coord_text = f"({value[0]}, {value[1]})"
+                draw.text(
+                    (x + 15, y + 5),
+                    coord_text,
+                    fill=color,
+                    font=font_small
                 )
         
-        # Blend overlay
-        alpha = 0.7
-        result = cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0)
-        
-        return result
+        return img
     
-    def add_info_panel(self, img: np.ndarray) -> np.ndarray:
-        """Add information panel with instructions."""
-        height = img.shape[0]
+    def add_legend(self, img: Image.Image) -> Image.Image:
+        """Add legend panel to image."""
+        # Create new image with space for legend
+        legend_height = 200
+        new_img = Image.new('RGB', (img.width, img.height + legend_height), (40, 40, 40))
+        new_img.paste(img, (0, legend_height))
         
-        # Create info panel
-        panel_height = 150
-        panel = np.zeros((panel_height, img.shape[1], 3), dtype=np.uint8)
-        panel[:] = (40, 40, 40)
+        draw = ImageDraw.Draw(new_img)
+        
+        try:
+            title_font = ImageFont.truetype("arial.ttf", 20)
+            font = ImageFont.truetype("arial.ttf", 14)
+        except:
+            title_font = ImageFont.load_default()
+            font = ImageFont.load_default()
         
         # Title
-        cv2.putText(
-            panel,
+        draw.text(
+            (10, 10),
             f"Region Visualizer - {self.config_name}/{self.position}",
-            (10, 25),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (255, 255, 255),
-            2
+            fill=(255, 255, 255),
+            font=title_font
         )
         
         # Instructions
         instructions = [
-            "ESC: Exit | S: Save screenshot | R: Refresh | H: Toggle help",
-            "Arrow Keys: Adjust selected region | +/-: Resize region",
-            "1-7: Select region | SPACE: Reset adjustments"
+            "This screenshot shows all configured screen regions for OCR.",
+            "Each region is marked with:",
+            "  - Colored rectangle outline",
+            "  - Label at the top",
+            "  - Center crosshair",
+            "  - Coordinates and dimensions"
         ]
         
-        y_pos = 55
+        y = 40
         for instruction in instructions:
-            cv2.putText(
-                panel,
-                instruction,
-                (10, y_pos),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.4,
-                (200, 200, 200),
-                1
-            )
-            y_pos += 25
+            draw.text((10, y), instruction, fill=(200, 200, 200), font=font)
+            y += 20
         
         # Region legend
-        legend_x = 10
-        legend_y = 125
+        y = 140
+        draw.text((10, y), "Regions:", fill=(255, 255, 255), font=font)
+        y += 25
+        
+        x = 10
         for key, color in self.COLORS.items():
             if key in self.coords:
                 label = self.LABELS.get(key, key)
                 
                 # Draw color box
-                cv2.rectangle(panel, (legend_x, legend_y - 10), 
-                            (legend_x + 15, legend_y), color, -1)
+                draw.rectangle([(x, y), (x + 15, y + 15)], fill=color)
                 
                 # Draw label
-                cv2.putText(
-                    panel,
-                    label,
-                    (legend_x + 20, legend_y),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.3,
-                    (200, 200, 200),
-                    1
-                )
+                draw.text((x + 20, y), label, fill=(200, 200, 200), font=font)
                 
-                legend_x += 150
+                x += 180
+                if x > img.width - 180:
+                    x = 10
+                    y += 25
         
-        # Combine
-        result = np.vstack([panel, img])
-        
-        return result
+        return new_img
     
-    def run(self):
-        """Run interactive visualizer."""
-        self.logger.info("Starting region visualizer")
-        self.logger.info("Press 'H' for help, 'ESC' to exit")
+    def save_visualization(self) -> str:
+        """Capture screen, draw regions, and save."""
+        self.logger.info("Capturing screen and drawing regions...")
         
-        cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
+        # Capture screen
+        img, capture_region = self.capture_screen()
         
-        show_help = True
-        selected_region = None
+        # Draw regions
+        img = self.draw_regions(img, capture_region)
         
-        try:
-            while True:
-                # Capture screen
-                screen = self.capture_screen()
-                
-                # Draw regions
-                result = self.draw_regions(screen)
-                
-                # Add info panel if help is shown
-                if show_help:
-                    result = self.add_info_panel(result)
-                
-                # Show
-                cv2.imshow(self.window_name, result)
-                
-                # Handle keyboard
-                key = cv2.waitKey(100) & 0xFF
-                
-                if key == 27:  # ESC
-                    break
-                
-                elif key == ord('h') or key == ord('H'):
-                    show_help = not show_help
-                
-                elif key == ord('s') or key == ord('S'):
-                    self.save_screenshot(result)
-                
-                elif key == ord('r') or key == ord('R'):
-                    # Refresh
-                    pass
-                
-                elif key == ord(' '):
-                    # Reset adjustments
-                    self.adjustments.clear()
-                    self.logger.info("Adjustments reset")
-                
-                # Region selection (1-7)
-                elif ord('1') <= key <= ord('7'):
-                    region_index = key - ord('1')
-                    region_keys = list(self.coords.keys())
-                    if region_index < len(region_keys):
-                        selected_region = region_keys[region_index]
-                        self.logger.info(f"Selected: {selected_region}")
-                
-                # Arrow keys for adjustment
-                elif selected_region:
-                    adjustment = list(self.adjustments.get(selected_region, [0, 0, 0, 0]))
-                    
-                    if key == 81:  # Left arrow
-                        adjustment[0] -= 1
-                    elif key == 83:  # Right arrow
-                        adjustment[0] += 1
-                    elif key == 82:  # Up arrow
-                        adjustment[1] -= 1
-                    elif key == 84:  # Down arrow
-                        adjustment[1] += 1
-                    elif key == ord('+') or key == ord('='):
-                        # Increase size
-                        adjustment[2] += 2
-                        adjustment[3] += 2
-                    elif key == ord('-') or key == ord('_'):
-                        # Decrease size
-                        adjustment[2] -= 2
-                        adjustment[3] -= 2
-                    
-                    self.adjustments[selected_region] = tuple(adjustment)
-                    
-                    if any(adjustment):
-                        self.logger.debug(f"{selected_region} adjustment: {adjustment}")
+        # Add legend
+        img = self.add_legend(img)
         
-        except KeyboardInterrupt:
-            self.logger.info("Interrupted by user")
-        
-        finally:
-            cv2.destroyAllWindows()
-            self.sct.close()
-            
-            # Save adjustments if any
-            if self.adjustments:
-                self.save_adjustments()
-    
-    def save_screenshot(self, img: np.ndarray):
-        """Save screenshot with timestamp."""
+        # Save
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         filename = f"region_viz_{self.config_name}_{self.position}_{timestamp}.png"
         
@@ -395,41 +315,26 @@ class RegionVisualizer:
         output_dir.mkdir(parents=True, exist_ok=True)
         
         filepath = output_dir / filename
-        cv2.imwrite(str(filepath), img)
+        img.save(filepath, 'PNG')
         
         self.logger.info(f"Screenshot saved: {filepath}")
-        print(f"\n✅ Screenshot saved: {filepath}\n")
+        
+        return str(filepath)
     
-    def save_adjustments(self):
-        """Save adjustments to file."""
-        if not self.adjustments:
-            return
-        
-        output_dir = Path("tests/adjustments")
-        output_dir.mkdir(parents=True, exist_ok=True)
-        
-        filename = output_dir / f"{self.config_name}_{self.position}_adjustments.txt"
-        
-        with open(filename, 'w') as f:
-            f.write(f"Configuration: {self.config_name}\n")
-            f.write(f"Position: {self.position}\n")
-            f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write("\n")
-            f.write("Adjustments (left, top, width, height):\n")
-            f.write("-" * 50 + "\n")
-            
-            for region, adjustment in self.adjustments.items():
-                f.write(f"{region}: {adjustment}\n")
-        
-        self.logger.info(f"Adjustments saved: {filename}")
-        print(f"\n✅ Adjustments saved: {filename}\n")
+    def cleanup(self):
+        """Cleanup resources."""
+        if self.sct:
+            self.sct.close()
 
 
 def main():
     """Main entry point."""
     print("="*60)
-    print("REGION VISUALIZER v1.0.2")
+    print("REGION VISUALIZER v1.0.3")
     print("="*60)
+    print("\nNOTE: This version saves an annotated screenshot")
+    print("      instead of showing an interactive window.")
+    print()
     
     # Get configuration
     coords_manager = CoordsManager()
@@ -456,12 +361,22 @@ def main():
         print(f"Invalid position: {position}")
         return
     
-    # Run visualizer
+    # Create visualization
     try:
         visualizer = RegionVisualizer(config_name, position)
-        visualizer.run()
+        filepath = visualizer.save_visualization()
+        visualizer.cleanup()
+        
+        print("\n" + "="*60)
+        print("✅ SUCCESS!")
+        print("="*60)
+        print(f"Screenshot saved to: {filepath}")
+        print("\nOpen this file to see all configured regions")
+        print("with labels, coordinates, and dimensions.")
+        print("="*60)
+        
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"\n❌ Error: {e}")
         import traceback
         traceback.print_exc()
 
