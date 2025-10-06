@@ -2,6 +2,12 @@
   "Four 100%": {
     "width": 1030,
     "height": 720,
+    "positions": {
+      "Top Left": null,
+      "Top Right": ["left"],
+      "Bottom Left": ["top"],
+      "Bottom Right": ["left", "top"]
+    },
     "BalkanBet": {
       "score_region": {
         "left": 4455,
