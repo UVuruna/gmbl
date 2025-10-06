@@ -27,13 +27,14 @@ class RegionEditor:
     
     # Colors for different region types (BGR format)
     COLORS = {
-        'score_region': (0, 255, 0),        # Green
-        'my_money_region': (255, 0, 0),     # Blue
-        'other_count_region': (0, 165, 255), # Orange
-        'other_money_region': (0, 255, 255), # Yellow
-        'phase_region': (255, 0, 255),      # Magenta
-        'play_amount_coords': (255, 255, 255), # White
-        'play_button_coords': (128, 128, 128), # Gray
+        'score_region': (0, 255, 0),            # Green
+        'my_money_region': (255, 0, 0),         # Blue
+        'other_count_region': (0, 128, 255),    # Orange
+        'other_money_region': (0, 255, 255),    # Yellow
+        'phase_region': (255, 0, 255),          # Magenta
+        'play_amount_coords': (0, 0, 255),      # Red
+        'play_button_coords': (255, 255, 0),    # Cyan
+        'auto_play_coords': (255,0,128)         # Purple
     }
     
     LABELS = {
@@ -44,6 +45,7 @@ class RegionEditor:
         'phase_region': 'PHASE',
         'play_amount_coords': 'BET AMOUNT',
         'play_button_coords': 'PLAY BUTTON',
+        'auto_play_coords': 'AUTO PLAY'
     }
     
     # Region types in order for selection
@@ -54,7 +56,8 @@ class RegionEditor:
         'other_money_region',
         'phase_region',
         'play_amount_coords',
-        'play_button_coords'
+        'play_button_coords',
+        'auto_play_coords'
     ]
     
     def __init__(self, config_name: str, position: str, coords_file: str = "data/coordinates/bookmaker_coords.json"):
@@ -83,6 +86,7 @@ class RegionEditor:
         self.selected_region = 0  # Index in REGION_KEYS
         self.show_help = True
         self.unsaved_changes = False
+        self.step = 5
         
         # Window
         self.window_name = f"Region Editor - {config_name}/{position}"
@@ -209,7 +213,7 @@ class RegionEditor:
             
             # Highlight selected region
             is_selected = (idx == self.selected_region)
-            thickness = 4 if is_selected else 2
+            thickness = 1
             
             if isinstance(value, dict) and 'left' in value:
                 # Rectangle region - adjust for capture offset
@@ -270,7 +274,7 @@ class RegionEditor:
                 cv2.putText(
                     overlay,
                     dim_text,
-                    (left + 5, top + height - 5),
+                    (left + 5, top + height + 15),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.4,
                     color,
@@ -360,10 +364,10 @@ class RegionEditor:
         
         # Keyboard controls
         controls = [
-            "SELECTION: 1-7 keys | TAB: Next region",
-            "MOVE: Arrow Keys (←→↑↓) OR WASD (W=up A=left S=down D=right)",
-            "RESIZE: +/- Both | [ ] Width | , . Height",
-            "ACTIONS: Ctrl+S: Save | R: Reset | H: Help | ESC/X: Exit",
+            f"SELECTION: 1-{len(self.REGION_KEYS)} keys | TAB: Next region",
+            "MOVE: Arrow Keys (← → ↑ ↓) OR WASD (W=up A=left S=down D=right)",
+            f"RESIZE: +/- Both | [] Width | <> Height | m/n Step ({self.step})",
+            "ACTIONS: Enter: Save | R: Reset | H: Help | ESC/X: Exit",
             ""
         ]
         
@@ -466,8 +470,8 @@ class RegionEditor:
         elif key == ord('h') or key == ord('H'):
             self.show_help = not self.show_help
         
-        # Ctrl+S - Save (key code for Ctrl+S is 19)
-        elif key == 19:
+        # Ctrl+S - Save (key code for ENTER is 13)
+        elif key == 13:
             self.save_coords()
         
         # R - Reset to defaults
@@ -477,8 +481,8 @@ class RegionEditor:
             self.logger.info("Reset to default coordinates")
             print("\n⚠️  Reset to default positions!")
         
-        # 1-7 - Select region
-        elif ord('1') <= key <= ord('7'):
+        # 1-8 - Select region
+        elif ord('1') <= key <= ord(f'{len(self.REGION_KEYS)}'):
             idx = key - ord('1')
             if idx < len(self.REGION_KEYS):
                 self.selected_region = idx
@@ -520,11 +524,17 @@ class RegionEditor:
         elif key == ord(']'):
             self._resize_region('width', increase=True)
         
-        # , . - Resize height only (changed from ; ')
+        # , . - Resize height only
         elif key == ord(',') or key == ord('<'):
             self._resize_region('height', increase=False)
         elif key == ord('.') or key == ord('>'):
             self._resize_region('height', increase=True)
+            
+        # m n - Increase Step Value
+        elif key == ord('m') or key == ord('M'):
+            self.step *= 5 if self.step < 125 else 1
+        elif key == ord('n') or key == ord('N'):
+            self.step //= 5 if self.step > 1 else 1
         
         return True
     
@@ -532,28 +542,26 @@ class RegionEditor:
         """Move selected region in given direction."""
         selected_key = self.REGION_KEYS[self.selected_region]
         value = self.coords[selected_key]
-        
-        step = 5  # Movement step
-        
+               
         if isinstance(value, dict):
             if direction == 'left':
-                value['left'] -= step
+                value['left'] -= self.step
             elif direction == 'right':
-                value['left'] += step
+                value['left'] += self.step
             elif direction == 'up':
-                value['top'] -= step
+                value['top'] -= self.step
             elif direction == 'down':
-                value['top'] += step
+                value['top'] += self.step
         
         elif isinstance(value, list):
             if direction == 'left':
-                value[0] -= step
+                value[0] -= self.step
             elif direction == 'right':
-                value[0] += step
+                value[0] += self.step
             elif direction == 'up':
-                value[1] -= step
+                value[1] -= self.step
             elif direction == 'down':
-                value[1] += step
+                value[1] += self.step
         
         self.unsaved_changes = True
     
@@ -571,15 +579,15 @@ class RegionEditor:
         if not isinstance(value, dict):
             return  # Can't resize point coordinates
         
-        step = 5 if increase else -5
+        direction = 1 if increase else -1
         
         if dimension == 'width':
-            value['width'] = max(10, value['width'] + step)
+            value['width'] = max(10, value['width'] + self.step * direction)
         elif dimension == 'height':
-            value['height'] = max(10, value['height'] + step)
+            value['height'] = max(10, value['height'] + self.step * direction)
         elif dimension == 'both':
-            value['width'] = max(10, value['width'] + step)
-            value['height'] = max(10, value['height'] + step)
+            value['width'] = max(10, value['width'] + self.step * direction)
+            value['height'] = max(10, value['height'] + self.step * direction)
         
         self.unsaved_changes = True
     
@@ -654,8 +662,8 @@ def main():
     
     elif choice == '2':
         print("\n--- CREATE NEW CONFIGURATION ---")
-        config_name = input("Configuration name (e.g., '6', '3_bookmakers'): ").strip()
-        position = input("Position name (e.g., 'TL', 'Left'): ").strip()
+        config_name = input("Configuration name (e.g., 'Four 100%', 'Six 80%'): ").strip()
+        position = input("Bookmaker name (e.g., 'BalkanBet', 'Mozzart'): ").strip()
         
         if not config_name or not position:
             print("Invalid input!")
@@ -664,7 +672,7 @@ def main():
     elif choice == '1':
         list_configs(coords_file)
         config_name = input("\nConfiguration name: ").strip()
-        position = input("Position name: ").strip()
+        position = input("Bookmaker name: ").strip()
         
         if not config_name or not position:
             print("Invalid input!")

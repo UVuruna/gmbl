@@ -1,20 +1,47 @@
-SAME SERVERS:
-	Mozzart == MaxBet
-	Admiral == Meridian
+    SAME SERVERS:
+      Mozzart == MaxBet == Merkur
+      Admiral == Meridian
+
 
 MOZZART - Done
-  .navigatio-wrapper = hide
-  .game-header = hide
+  .navigatio-wrapper = display none
+  .game-header = display none
   .casino-game-fullscreen = height 100%, width 100%, padding 0
   .game-holder = height 100%
 
 BALKANBET - Done
-  .header-wrap = hide
+  .header-wrap = display none
   .content-frame = bottom 0, top 0
   .game__container = max-width unset, padding 0
 
 SOCCER - Done
-  .widget_carousel = hide
-  .DESK-nav-top = hide
+  .widget_carousel = display none
+  .DESK-nav-top = display none
   .lobby-game--header = height 0
   .DESK-content = height 100 vh
+
+ADMIRAL - Done
+  .sticky-top = display none
+  #sidebar-left = display none
+  #spribeIframe = height 100vh, width 100vw, min-height 0
+  section.content = margin 0
+  #footer = display none
+  .stage-board = 
+
+MERIDIAN - Done (FINE)
+  .c-casino-game__header = display none
+  .c-casino-game = padding 0
+  .c-casino-game-main = padding 0
+
+MAXBET - Done (FINE)
+  .DESK-content--right = display none
+  .DESK-content--left = display none
+  .DESK-nav-top = display none
+  .DESK-nav-footer = display none
+  .DESK--app, .DESK-content, .DESK.content--inner {height 100 vh}
+
+MERKUR
+  .DESK-content-casino--right = display none
+  .DESK-nav-top = display none
+  #seven-plugin OR .lobby-game-display--games-display = margin 0, height 100vh
+  .DESK-content-casino--center = width 100vw height 100vh !important

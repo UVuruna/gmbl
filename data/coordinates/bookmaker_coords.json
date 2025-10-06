@@ -44,56 +44,68 @@
         "top": 850,
         "width": 280,
         "height": 130
+      },
+      "auto_play_coords": {
+        "left": 4825,
+        "top": 1000,
+        "width": 280,
+        "height": 130
       }
     },
     "MaxBet": {
       "score_region": {
         "left": 4455,
-        "top": 400,
+        "top": 423,
         "width": 800,
         "height": 215
       },
       "my_money_region": {
-        "left": 5095,
-        "top": 140,
+        "left": 5085,
+        "top": 148,
         "width": 140,
         "height": 40
       },
       "other_count_region": {
         "left": 3865,
-        "top": 305,
-        "width": 200,
-        "height": 35
+        "top": 317,
+        "width": 190,
+        "height": 28
       },
       "other_money_region": {
-        "left": 4140,
-        "top": 270,
+        "left": 4137,
+        "top": 281,
         "width": 170,
-        "height": 40
+        "height": 35
       },
       "phase_region": {
         "left": 4615,
-        "top": 417,
+        "top": 440,
         "width": 480,
         "height": 180
       },
       "play_amount_coords": {
-        "left": 4635,
-        "top": 835,
-        "width": 100,
-        "height": 30
+        "left": 4618,
+        "top": 876,
+        "width": 125,
+        "height": 35
       },
       "play_button_coords": {
-        "left": 4825,
-        "top": 850,
-        "width": 280,
-        "height": 130
+        "left": 4814,
+        "top": 881,
+        "width": 300,
+        "height": 110
+      },
+      "auto_play_coords": {
+        "left": 5010,
+        "top": 1031,
+        "width": 70,
+        "height": 27
       }
     },
     "Mozzart": {
       "score_region": {
         "left": 4455,
-        "top": 400,
+        "top": 420,
         "width": 800,
         "height": 215
       },
@@ -106,7 +118,7 @@
       "other_count_region": {
         "left": 3865,
         "top": 305,
-        "width": 200,
+        "width": 180,
         "height": 35
       },
       "other_money_region": {
@@ -117,19 +129,25 @@
       },
       "phase_region": {
         "left": 4615,
-        "top": 417,
+        "top": 437,
         "width": 480,
         "height": 180
       },
       "play_amount_coords": {
         "left": 4635,
-        "top": 835,
+        "top": 880,
         "width": 100,
         "height": 30
       },
       "play_button_coords": {
         "left": 4825,
-        "top": 850,
+        "top": 885,
+        "width": 280,
+        "height": 100
+      },
+      "auto_play_coords": {
+        "left": 4825,
+        "top": 1000,
         "width": 280,
         "height": 130
       }
@@ -137,12 +155,12 @@
     "Admiral": {
       "score_region": {
         "left": 4455,
-        "top": 400,
+        "top": 420,
         "width": 800,
         "height": 215
       },
       "my_money_region": {
-        "left": 5095,
+        "left": 5070,
         "top": 140,
         "width": 140,
         "height": 40
@@ -161,21 +179,27 @@
       },
       "phase_region": {
         "left": 4615,
-        "top": 417,
+        "top": 437,
         "width": 480,
         "height": 180
       },
       "play_amount_coords": {
-        "left": 4635,
-        "top": 835,
-        "width": 100,
-        "height": 30
+        "left": 4615,
+        "top": 875,
+        "width": 125,
+        "height": 35
       },
       "play_button_coords": {
-        "left": 4825,
-        "top": 850,
+        "left": 4815,
+        "top": 885,
         "width": 280,
-        "height": 130
+        "height": 100
+      },
+      "auto_play_coords": {
+        "left": 5005,
+        "top": 1030,
+        "width": 65,
+        "height": 30
       }
     },
     "Soccer": {
@@ -220,26 +244,32 @@
         "top": 880,
         "width": 280,
         "height": 100
+      },
+      "auto_play_coords": {
+        "left": 4825,
+        "top": 1000,
+        "width": 280,
+        "height": 130
       }
     },
     "Meridian": {
       "score_region": {
         "left": 4455,
-        "top": 400,
+        "top": 420,
         "width": 800,
         "height": 215
       },
       "my_money_region": {
-        "left": 5095,
-        "top": 140,
+        "left": 5075,
+        "top": 144,
         "width": 140,
-        "height": 40
+        "height": 35
       },
       "other_count_region": {
-        "left": 3865,
-        "top": 305,
-        "width": 200,
-        "height": 35
+        "left": 3866,
+        "top": 309,
+        "width": 190,
+        "height": 28
       },
       "other_money_region": {
         "left": 4140,
@@ -249,65 +279,77 @@
       },
       "phase_region": {
         "left": 4615,
-        "top": 417,
+        "top": 437,
         "width": 480,
         "height": 180
       },
       "play_amount_coords": {
-        "left": 4635,
-        "top": 835,
-        "width": 100,
-        "height": 30
+        "left": 4619,
+        "top": 877,
+        "width": 120,
+        "height": 33
       },
       "play_button_coords": {
-        "left": 4825,
-        "top": 850,
-        "width": 280,
-        "height": 130
+        "left": 4808,
+        "top": 879,
+        "width": 300,
+        "height": 110
+      },
+      "auto_play_coords": {
+        "left": 5006,
+        "top": 1030,
+        "width": 70,
+        "height": 27
       }
     },
     "Merkur": {
       "score_region": {
         "left": 4455,
-        "top": 400,
+        "top": 420,
         "width": 800,
-        "height": 215
+        "height": 210
       },
       "my_money_region": {
-        "left": 5095,
-        "top": 140,
+        "left": 5091,
+        "top": 144,
         "width": 140,
-        "height": 40
-      },
-      "other_count_region": {
-        "left": 3865,
-        "top": 305,
-        "width": 200,
         "height": 35
       },
+      "other_count_region": {
+        "left": 3867,
+        "top": 309,
+        "width": 160,
+        "height": 28
+      },
       "other_money_region": {
-        "left": 4140,
-        "top": 270,
+        "left": 4139,
+        "top": 272,
         "width": 170,
-        "height": 40
+        "height": 35
       },
       "phase_region": {
         "left": 4615,
-        "top": 417,
+        "top": 435,
         "width": 480,
         "height": 180
       },
       "play_amount_coords": {
-        "left": 4635,
-        "top": 835,
-        "width": 100,
-        "height": 30
+        "left": 4624,
+        "top": 876,
+        "width": 120,
+        "height": 35
       },
       "play_button_coords": {
-        "left": 4825,
-        "top": 850,
-        "width": 280,
-        "height": 130
+        "left": 4816,
+        "top": 880,
+        "width": 300,
+        "height": 110
+      },
+      "auto_play_coords": {
+        "left": 5014,
+        "top": 1030,
+        "width": 70,
+        "height": 28
       }
     }
   }
