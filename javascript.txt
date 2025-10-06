@@ -45,3 +45,5 @@ MERKUR
   .DESK-nav-top = display none
   #seven-plugin OR .lobby-game-display--games-display = margin 0, height 100vh
   .DESK-content-casino--center = width 100vw height 100vh !important
+  
+  .casino-game--jackpot-nav-wrapper = display none
