@@ -10,7 +10,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # ====================================================================
 # CONFIGURATION
 # ====================================================================
-image_path = "C:/Users/vurun/OneDrive/Pictures/Screenshots/1.png"
+img_name = input('enter img name: ')
+image_path = f"C:/Users/vurun/OneDrive/Pictures/Screenshots/{img_name}.png"
 expected_count = 60
 
 print("\n" + "="*80)
@@ -158,8 +159,8 @@ try:
     
     # Show ALL
     print("\n   ALL FIXED NUMBERS:")
-    for i in range(0, len(tess_fixed), 10):
-        row = tess_fixed[i:i+10]
+    for i in range(0, len(tess_fixed), 18):
+        row = tess_fixed[i:i+18]
         print("      " + "  ".join(f"{n:6.2f}x" for n in row))
     
     tess_diff = abs(len(tess_fixed) - expected_count)
