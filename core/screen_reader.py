@@ -1,6 +1,6 @@
 # core/screen_reader.py
-# VERSION: 5.0
-# CHANGES: Integration with AdvancedOCRReader, OpenCV support
+# VERSION: 6.0
+# CHANGES: Updated to work with new AdvancedOCRReader v6.0
 
 import mss
 import numpy as np
@@ -12,8 +12,8 @@ from core.ocr_processor import AdvancedOCRReader
 
 class ScreenReader:
     """
-    High-performance screen capture with advanced OCR.
-    VERSION: 5.0
+    High-performance screen capture with advanced multi-engine OCR.
+    VERSION: 6.0
     """
     
     def __init__(self, region: Dict[str, int], ocr_type: str = 'auto'):
@@ -31,7 +31,12 @@ class ScreenReader:
         self._last_image = None
         
         self.logger = AviatorLogger.get_logger("ScreenReader")
+        
+        # Initialize advanced OCR with multi-engine support
         self.advanced_ocr = AdvancedOCRReader()
+        
+        self.logger.info(f"ScreenReader initialized for region: {region}")
+        self.logger.info(f"OCR type: {ocr_type}")
     
     def _validate_region(self, region: Dict[str, int]) -> Dict[str, int]:
         """Validate and normalize region coordinates."""
@@ -80,7 +85,12 @@ class ScreenReader:
     
     def read_with_advanced_ocr(self, ocr_type: Optional[str] = None) -> Optional[any]:
         """
-        Read using advanced OCR processor.
+        Read using advanced OCR processor with multi-engine fallback.
+        
+        This method automatically tries:
+        1. Tesseract (fast, default)
+        2. EasyOCR (if Tesseract fails and EasyOCR is available)
+        3. PaddleOCR (if both fail and PaddleOCR is available)
         
         Args:
             ocr_type: Override the default OCR type
@@ -116,7 +126,9 @@ class ScreenReader:
     def read_once(self) -> str:
         """
         Legacy method for compatibility.
-        Captures and returns raw OCR text.
+        Captures and returns raw OCR text using Tesseract.
+        
+        NOTE: For production use, prefer read_with_advanced_ocr()
         """
         import pytesseract
         
@@ -140,13 +152,21 @@ class ScreenReader:
             try:
                 import cv2
                 cv2.imwrite(filename, self._last_image)
+                self.logger.info(f"Saved capture to: {filename}")
                 return True
             except Exception as e:
                 self.logger.error(f"Save error: {e}")
+        else:
+            self.logger.warning("No image to save")
         return False
+    
+    def get_last_image(self) -> Optional[np.ndarray]:
+        """Get last captured image (for debugging/visualization)."""
+        return self._last_image
     
     def close(self) -> None:
         """Clean up resources."""
         if self._sct:
             self._sct.close()
             self._sct = None
+        self.logger.info("ScreenReader closed")
