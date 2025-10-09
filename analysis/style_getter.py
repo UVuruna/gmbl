@@ -85,6 +85,8 @@ class BettingStyleCalculator:
             # Proveri da li prelazi max
             if bet > self.max_bet:
                 break
+            if bet < 10:
+                bet = 10
             
             # Dodaj u betting order
             total_invested += bet
@@ -108,7 +110,8 @@ class BettingStyleCalculator:
 def test_betting_styles(
     start_cashout: float = 2.10,
     end_cashout: float = 2.50,
-    win_per_round_order: List[int] = None
+    win_per_round_order: List[int] = None,
+    max_bet: float = 11_000
 ):
     """
     Testira različite betting style-ove za opseg auto_cashout vrednosti
@@ -119,9 +122,9 @@ def test_betting_styles(
         win_per_round_order: Željeni dobici po rundama
     """
     if win_per_round_order is None:
-        win_per_round_order = [20, 15, 15, 15, 15, 10, 10, 10, 10, 5]
+        win_per_round_order = [35, 30, 20, 15]
     
-    calculator = BettingStyleCalculator(max_bet=11000, rounding=5)
+    calculator = BettingStyleCalculator(max_bet=max_bet, rounding=5)
     
     # Konvertuj u cele brojeve da izbegneš float precision error
     start_int = int(start_cashout * 100)
@@ -145,14 +148,29 @@ def test_betting_styles(
         betting_stats.main(config)
         
         # Prikaži betting order
-        output = '  -  '.join([f'{bet:,.0f}' for bet in betting_order])
-        input(f'\t{len(betting_order)}   <<<>>>   {betting_order}   <<<>>>')
+        print(f'\t{len(betting_order)}   <<<>>>   {betting_order}   <<<>>>')
+        detail = input(f'Do you want detailed output: ')
+        detail = True if detail != '' else False
+        
+        if detail:
+            # Kreiraj config i analiziraj
+            config = betting_stats.BettingConfig(
+                bet_order=betting_order,
+                auto_cashout=auto_cashout,
+                max_loss_streak=len(betting_order),
+                full_output=True
+            )
+            
+            betting_stats.main(config)
+            input('')
+            
 
 
 if __name__ == '__main__':
     # Parametri za testiranje
-    START_CASHOUT = 2.10
-    END_CASHOUT = 2.50
-    WINNING_ORDER = [20, 15, 15, 15, 15, 10, 10, 10, 10, 5]
+    START_CASHOUT = 1.9
+    END_CASHOUT = 4
+    WINNING_ORDER = [50]
+    MAX_BET = 3500
     
-    test_betting_styles(START_CASHOUT, END_CASHOUT, WINNING_ORDER)
+    test_betting_styles(START_CASHOUT, END_CASHOUT, WINNING_ORDER, MAX_BET)
