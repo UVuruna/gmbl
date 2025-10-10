@@ -1,49 +1,98 @@
-    SAME SERVERS:
-      Mozzart == MaxBet == Merkur
-      Admiral == Meridian
+SERVERS:
+    Mozzart == MaxBet == Merkur
+    Admiral == Meridian
+    BalkanBet
+    Soccer
+
+LIMTS:
+    Mozzart = 100_000
+    BalkanBet = 12_000
+    Soccer = 11_000
+    Admiral = 11_000
+    MaxBet = 11_000
+    Merkur = 11_000
+    Meridian = 11_000
 
 
-MOZZART - Done
-  .navigatio-wrapper = display none
-  .game-header = display none
-  .casino-game-fullscreen = height 100%, width 100%, padding 0
-  .game-holder = height 100%
+{
+        Mozzart - CSS-Done
+    /* Insert code here... */
+    
+    .navigatio-wrapper {display: none}
+    .game-header {display: none !important;}
+    .casino-game-fullscreen {height: 100% !important; width: 100% !important; padding: 0 !important}
+    .game-holder {height: 100%} 
+}
 
-BALKANBET - Done
-  .header-wrap = display none
-  .content-frame = bottom 0, top 0
-  .game__container = max-width unset, padding 0
+{
+        BalkanBet - CSS-Done
+    /* Insert code here... */
 
-SOCCER - Done
-  .widget_carousel = display none
-  .DESK-nav-top = display none
-  .lobby-game--header = height 0
-  .DESK-content = height 100 vh
+    .n-header {position: fixed; width: 100%; top: 0; height: 0; z-index: -1}
+    .n-content.fixed .content-frame {position: absolute; top: 0; bottom: 0; max-width: none; z-index: 100}
+    .game__container {max-width: unset; padding: 0}
+    button.btn.btn-secondary.btn-sm.bet-opt.ng-star-inserted {display: none}
+}
 
-ADMIRAL - Done
-  .sticky-top = display none
-  #sidebar-left = display none
-  #spribeIframe = height 100vh, width 100vw, min-height 0
-  section.content = margin 0
-  #footer = display none
-  .stage-board = 
 
-MERIDIAN - Done (FINE)
-  .c-casino-game__header = display none
-  .c-casino-game = padding 0
-  .c-casino-game-main = padding 0
+{
+        Soccer - CSS-Done
+    /* Insert code here... */
 
-MAXBET - Done (FINE)
-  .DESK-content--right = display none
-  .DESK-content--left = display none
-  .DESK-nav-top = display none
-  .DESK-nav-footer = display none
-  .DESK--app, .DESK-content, .DESK.content--inner {height 100 vh}
+    .widget_carousel {display: none}
+    .DESK-nav-top {display: none}
+    .lobby-game--header {height: 0}
+    .DESK-content {height: 100vh}
+    .DESK-nav-footer {display: none; top: 0; bottom: 0}
+    .widget_carousel.pointer-events-none.ng-tns-c1403638028-0.initial.promotion.top_left.collapsed.ng-star-inserted {display: none}
+    ion-content.ios.hydrated {top: 0}
+    ds-lobby-game .lobby-game--header {height: 0px; z-index: -1}
+}
 
-MERKUR
-  .DESK-content-casino--right = display none
-  .DESK-nav-top = display none
-  #seven-plugin OR .lobby-game-display--games-display = margin 0, height 100vh
-  .DESK-content-casino--center = width 100vw height 100vh !important
-  
-  .casino-game--jackpot-nav-wrapper = display none
+
+{
+        Admiral - CSS-Done
+    /* Insert code here... */
+
+    .sticky-top {display: none}
+    #sidebar-left {display: none}
+    section.content {margin: 0}
+    #footer {display: none}
+    #spribeIframe {min-height: 100vh !important}
+}
+
+{
+        MaxBet - CSS-Done
+    /* Insert code here... */
+
+    .DESK-content--right {display: none}
+    .DESK-content--left {display: none}
+    .DESK-nav-top {display: none}
+    .DESK-nav-footer {display: none}
+    .DESK--app, .DESK-content, .DESK.content--inner {height: 100vh !important}
+    ion-row.DESK-content--inner.ios.hydrated {height: 100%}
+    ion-toolbar.navbar-header.toolbar-title-default.ion-color.ion-color-primary.ios.in-toolbar.hydrated {display: none}
+}
+
+{
+        Merkur - CSS-Done
+    /* Insert code here... */
+
+    .DESK-content-casino--right {display: none}
+    .DESK-nav-top {display: none}
+
+    .casino-game--jackpot-nav-wrapper {display: none}
+    .DESK-content-casino--right {width: 100vw !important; height: 100vh !important}
+    #seven-plugin, .lobby-game-display--games-display {margin: 0; height: 100vh}
+    #webchat-root {display: none}
+}
+
+{
+        Meridian - CSS-Done
+    /* Insert code here... */
+    
+    .c-casino-game__header {display: none !important}
+    .c-casino-game {padding: 0}
+    .c-casino-game-main {padding: 0 !important}
+    .c-casino-game.c-casino-game--real-mode.ng-star-inserted {padding: 0}
+}

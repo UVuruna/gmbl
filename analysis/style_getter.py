@@ -168,9 +168,9 @@ def test_betting_styles(
 
 if __name__ == '__main__':
     # Parametri za testiranje
-    START_CASHOUT = 1.9
-    END_CASHOUT = 4
-    WINNING_ORDER = [50]
-    MAX_BET = 3500
+    START_CASHOUT = 1.01
+    END_CASHOUT = 5
+    WINNING_ORDER = [100,50]
+    MAX_BET = 22000
     
     test_betting_styles(START_CASHOUT, END_CASHOUT, WINNING_ORDER, MAX_BET)

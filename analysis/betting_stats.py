@@ -209,7 +209,7 @@ class BettingStatsAnalyzer:
         percent_bar_length = 300
         
         for k, v in filtered_wins.items():
-            wins_count_str += f"{k}.= {v:,.0f}".ljust(10) + " | "
+            wins_count_str += f"{k}. {v:,.0f}".ljust(8) + " | "
         
         title_axis = ''
         jump = percent_bar_length // 50 # 50% max
@@ -220,7 +220,7 @@ class BettingStatsAnalyzer:
             
         for k, v in filtered_wins.items():
             percentage = (v/self.total_wins)*100
-            wins_percent_str += f"{k}.= {percentage:,.1f}%".ljust(10) + " | "
+            wins_percent_str += f"{k}. {percentage:,.1f}%".ljust(8) + " | "
             
             # Vizuelna reprezentacija sa █ karakterom
             bar_length = int(round(percentage*percent_bar_length/100))  # 1% = 1 karakter
@@ -238,7 +238,7 @@ class BettingStatsAnalyzer:
             f'\n\n\tRISK: {self.risk_amount:,.0f} RSD - '
             f'count: {self.total_big_losses:,.0f}  |  '
             f'WINS: ({self.win_min:,.0f} RSD : {self.win_max:,.0f} RSD) - '
-            f'count: {self.total_wins:,.0f}  |  '
+            f'count: {self.total_wins:,.0f} ({100*self.total_wins/self.total_rounds:,.1f}%)  |  '
             f'Money needed: {total_money_needed:,.0f} RSD'
             f'\n\nAll WINS:  {wins_count_str[:-3]}'
             f'\n           {wins_percent_str[:-3]}'
