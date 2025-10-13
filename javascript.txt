@@ -1,17 +1,22 @@
 SERVERS:
     Mozzart == MaxBet == Merkur
-    Admiral == Meridian
     BalkanBet
-    Soccer
+    Soccer == Bet365
+    Admiral == Meridian
+    King
+    1XBet
 
 LIMTS:
     Mozzart = 100_000
+    Meridian = 24_000
     BalkanBet = 12_000
     Soccer = 11_000
     Admiral = 11_000
     MaxBet = 11_000
     Merkur = 11_000
-    Meridian = 11_000
+    1XBet = 11_000
+    Bet365 = 11_000
+    
 
 
 {
@@ -70,6 +75,8 @@ LIMTS:
     .DESK-nav-top {display: none}
     .DESK-nav-footer {display: none}
     .DESK--app, .DESK-content, .DESK.content--inner {height: 100vh !important}
+    .DESK-content--center {margin-top: 0 !important}
+    ds-lobby-game-wrapper.ion-content--scroll {overflow-x: visible !important}
     ion-row.DESK-content--inner.ios.hydrated {height: 100%}
     ion-toolbar.navbar-header.toolbar-title-default.ion-color.ion-color-primary.ios.in-toolbar.hydrated {display: none}
 }
@@ -88,6 +95,18 @@ LIMTS:
 }
 
 {
+
+    King - CSS-Done
+    /* Insert code here... */
+
+    div#js_gv_main {margin: 0 !important; padding: 0 !important; width: 100% !important; height: 100% !important; z-index: 1000}
+    div#js_game_view_cont {width: 100%}
+    
+    .lca-gv-container-item.one-item.js_game_view_item {top: 0; position: absolute; bottom: 0; height: 100vh !important; width: 100vw !important; padding: 0}
+    div#js_game_view_inner_cont {padding-top: 100vh}
+}
+
+{
         Meridian - CSS-Done
     /* Insert code here... */
     
@@ -95,4 +114,21 @@ LIMTS:
     .c-casino-game {padding: 0}
     .c-casino-game-main {padding: 0 !important}
     .c-casino-game.c-casino-game--real-mode.ng-star-inserted {padding: 0}
+    .l-main-content.l-main-content--header-hidden {width: 100vw}
+    .c-customer-support-button.ng-tns-c1241533063-0.ng-star-inserted {display: none}
+}
+
+{
+    Bet365 - CSS-Done
+    /* Insert code here... */
+
+    header.header.header--product-nav-visible {display: none}
+    .inline-games-page-component__game-header {display: none}
+    .inline-games-page-component__content-container {height: 100vh; padding: 0}
+    .inline-games-page-component__iframe-container {
+        max-width: unset !important;
+        max-height: unset !Important;
+        width: 100vw !important;
+        height: 100vh !important;
+    }
 }

@@ -280,8 +280,8 @@ if __name__ == '__main__':
     """Glavna funkcija"""
     # Konfiguracija
     CASHOUT = 2.2
-    MAX_LOSS = 9
-    BETTING_ORDER = [15, 35, 75, 150, 280, 490, 890, 1610, 2910, 5205, 9370]
+    MAX_LOSS = 1
+    BETTING_ORDER = [10]
     
     config = BettingConfig(
         bet_order = BETTING_ORDER,

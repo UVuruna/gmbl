@@ -110,6 +110,7 @@ class BettingStyleCalculator:
 def test_betting_styles(
     start_cashout: float = 2.10,
     end_cashout: float = 2.50,
+    step_cashout: float = 0.01,
     win_per_round_order: List[int] = None,
     max_bet: float = 11_000
 ):
@@ -129,8 +130,9 @@ def test_betting_styles(
     # Konvertuj u cele brojeve da izbegneš float precision error
     start_int = int(start_cashout * 100)
     end_int = int(end_cashout * 100)
+    step_int = int(step_cashout * 100)
     
-    for auto_int in range(start_int, end_int + 1):
+    for auto_int in range(start_int, end_int + 1, step_int):
         # Konvertuj nazad u float sa tačnom preciznošću
         auto_cashout = round(auto_int / 100, 2)
         
@@ -168,9 +170,16 @@ def test_betting_styles(
 
 if __name__ == '__main__':
     # Parametri za testiranje
-    START_CASHOUT = 1.01
+    START_CASHOUT = 2
     END_CASHOUT = 5
-    WINNING_ORDER = [100,50]
-    MAX_BET = 22000
+    STEP_CASHOUT = 0.02
+    WINNING_ORDER = [100,80,60,10]
+    MAX_BET = 200_000
     
-    test_betting_styles(START_CASHOUT, END_CASHOUT, WINNING_ORDER, MAX_BET)
+    test_betting_styles(
+        start_cashout=START_CASHOUT,
+        end_cashout=END_CASHOUT,
+        step_cashout=STEP_CASHOUT,
+        win_per_round_order=WINNING_ORDER,
+        max_bet=MAX_BET
+    )
