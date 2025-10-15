@@ -1,10 +1,11 @@
 """
-Betting Statistics Analyzer
-Analizira CSV logove klađenja i prikazuje statistiku performansi
+Betting Statistics Analyzer v2.0
+- Improved lossless_end logic
+- Better handling of incomplete cycles
 """
 
 import pandas as pd
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
 
@@ -28,6 +29,7 @@ class BookmakerStats:
     big_losses: int
     hours_played: float
     money_needed: float
+    trimmed_rounds: int  # Broj odsečenih rundi
     
 
 class BettingStatsAnalyzer:
@@ -43,6 +45,7 @@ class BettingStatsAnalyzer:
         self.total_hours = 0
         self.total_big_losses = 0
         self.total_wins = 0
+        self.total_trimmed = 0
         
         # Praćenje dobitaka
         self.win_min = float('inf')
@@ -59,23 +62,68 @@ class BettingStatsAnalyzer:
         df = df.where(pd.notnull(df), None)
         return df.to_dict(orient="records")
     
-    def lossless_end(self, end_table: list):
+    def find_lossless_cutoff(self, bet_table: list) -> Tuple[Optional[int], int]:
+        """
+        Pronađi tačku gde treba seći tabelu da završi sa kompletnim loss cycle-om.
+        
+        Logika:
+        - Ako kraj završava sa WIN-om → uzmi celu tabelu
+        - Ako kraj završava sa LOSS-ovima → broji ih i seći nepotpune cycle-e
+        
+        Primer: max_loss_streak = 6
+        - 15 loss-ova na kraju → 15 % 6 = 3 → seći 3, ostaviti 12 (2 kompletna cycle-a)
+        - 10 loss-ova na kraju → 10 % 6 = 4 → seći 4, ostaviti 6 (1 kompletan cycle)
+        - 12 loss-ova na kraju → 12 % 6 = 0 → uzmi sve (2 kompletna cycle-a)
+        
+        Returns:
+            (cutoff_index, trimmed_count): 
+                - cutoff_index: Indeks do kog da se koristi tabela (None = cela tabela)
+                - trimmed_count: Broj odsečenih rundi
+        """
         auto = self.config.auto_cashout
-
-        for i, bet in enumerate(reversed(end_table)):
-            score = float(bet['score'])
-            if score > auto:
-                # ako je poslednji bio win, ne treba seći
-                return None if i == 0 else -i
-
-        # ako smo došli do početka bez win-a
-        return None
+        max_loss = self.config.max_loss_streak
+        
+        # Broji uzastopne loss-ove od kraja
+        consecutive_losses = 0
+        
+        for bet in reversed(bet_table):
+            if bet['score'] is None:
+                continue
             
+            score = float(bet['score'])
+            
+            if score >= auto:
+                # Našli smo WIN - kraj je čist
+                break
+            else:
+                # LOSS
+                consecutive_losses += 1
+        
+        # Ako nema loss-ova na kraju (završava sa WIN-om ili prazna tabela)
+        if consecutive_losses == 0:
+            return None, 0
+        
+        # Izračunaj koliko nepotpunih loss-ova treba odseći
+        incomplete_losses = consecutive_losses % max_loss
+        
+        if incomplete_losses == 0:
+            # Svi loss cycle-i su kompletni - uzmi celu tabelu
+            return None, 0
+        else:
+            # Seći nepotpune loss-ove
+            cutoff = len(bet_table) - incomplete_losses
+            return cutoff, incomplete_losses
     
     def analyze_bookmaker(self, bookmaker_name: str) -> BookmakerStats:
         """Analiziraj podatke za jedan bookmaker"""
         bet_table = self.load_csv(bookmaker_name)
-        length = self.lossless_end(bet_table)
+        
+        # Odredi gde da sečemo tabelu
+        cutoff, trimmed = self.find_lossless_cutoff(bet_table)
+        working_table = bet_table[:cutoff] if cutoff is not None else bet_table
+        
+        if self.config.full_output and trimmed > 0:
+            print(f"  ⚠️  Trimmed {trimmed} incomplete rounds at the end")
         
         # Početne vrednosti
         total_balance = 0
@@ -95,11 +143,13 @@ class BettingStatsAnalyzer:
         if bookmaker_name not in self.money_needed_per_bookmaker:
             self.money_needed_per_bookmaker[bookmaker_name] = 0
         
-        self.lossless_end(bet_table[-self.config.max_loss_streak:])
-        
-        for i, bet in enumerate(bet_table[:length]):
+        for i, bet in enumerate(working_table):
             # Čitaj vreme i skor
             total_time = int(bet['sec']) if bet['sec'] is not None else 0
+            
+            if bet['score'] is None:
+                continue
+                
             score = float(bet['score'])
             bet_amount = self.config.bet_order[current_bet_index]
             
@@ -107,7 +157,7 @@ class BettingStatsAnalyzer:
             total_balance -= bet_amount
             
             # Proveri da li je dobitak
-            if score > self.config.auto_cashout:
+            if score >= self.config.auto_cashout:
                 win_amount = bet_amount * self.config.auto_cashout
                 total_balance += win_amount
                 
@@ -147,28 +197,31 @@ class BettingStatsAnalyzer:
             
             # Periodični ispis (svakih ~20 minuta)
             if total_time != 0 and total_time % 1800 < 20:
-                if self.config.full_output is True:
+                if self.config.full_output:
                     self._print_progress(
                         bookmaker_name, total_balance, max_loss_amount, 
                         max_loss_count, big_losses, total_time
                     )
         
         # Ažuriraj globalne statistike
-        self.total_rounds += i + 1
+        rounds_played = len(working_table)
+        self.total_rounds += rounds_played
         self.total_balance += total_balance
         self.total_big_losses += big_losses
+        self.total_trimmed += trimmed
         hours = total_time / 3600
         self.total_hours = max(self.total_hours, hours)
         
         return BookmakerStats(
             name=bookmaker_name,
-            total_rounds=i + 1,
+            total_rounds=rounds_played,
             total_balance=total_balance,
             max_loss_amount=max_loss_amount,
             max_loss_count=max_loss_count,
             big_losses=big_losses,
             hours_played=hours,
-            money_needed=abs(self.money_needed_per_bookmaker[bookmaker_name])
+            money_needed=abs(self.money_needed_per_bookmaker[bookmaker_name]),
+            trimmed_rounds=trimmed
         )
     
     def _print_progress(self, bookmaker: str, total: float, max_loss: float, 
@@ -184,7 +237,7 @@ class BettingStatsAnalyzer:
     
     def print_bookmaker_summary(self, stats: BookmakerStats):
         """Prikaži finalni summary za bookmaker"""
-        if self.config.full_output is True:
+        if self.config.full_output:
             print('_' * 120)
             print(
                 f"{stats.total_rounds:<10,.0f}    |    "
@@ -194,16 +247,17 @@ class BettingStatsAnalyzer:
                 f"Vreme: {stats.hours_played * 60:>7.2f} min"
             )
             print('_' * 120)
-            
+        
+        trim_info = f" [trimmed: {stats.trimmed_rounds}]" if stats.trimmed_rounds > 0 else ""
         final = (
             f'\t*** STATS {stats.name.upper()}:'.ljust(28) +
             f'total = {stats.total_balance:,.0f} RSD'.ljust(24) +
             f'din/h: {stats.total_balance/stats.hours_played:,.0f} RSD'.ljust(24) +
             f'Money needed: {stats.money_needed:,.0f} RSD'.ljust(33) +
-            f'({stats.big_losses:,.0f}) ***'.ljust(6)
+            f'({stats.big_losses:,.0f}) ***{trim_info}'.ljust(6)
         )
         
-        if self.config.full_output is True:
+        if self.config.full_output:
             print(final)
             print('\n')
             
@@ -229,7 +283,7 @@ class BettingStatsAnalyzer:
             wins_count_str += f"{k}. {v:,.0f}".ljust(8) + " | "
         
         title_axis = ''
-        jump = percent_bar_length // 50 # 50% max
+        jump = percent_bar_length // 50  # 50% max
         for i in range(2, 51, 2):
             txt = f'{i}%|'
             br = int(jump - len(txt))
@@ -240,14 +294,15 @@ class BettingStatsAnalyzer:
             wins_percent_str += f"{k}. {percentage:,.1f}%".ljust(8) + " | "
             
             # Vizuelna reprezentacija sa █ karakterom
-            bar_length = int(round(percentage*percent_bar_length/100))  # 1% = 1 karakter
+            bar_length = int(round(percentage*percent_bar_length/100))
             bar = '█' * bar_length
             wins_visual_str += f"{k}.".ljust(4) + f"= {bar}" + "\n"
         
         total_money_needed = abs(sum(self.money_needed_per_bookmaker.values()))
+        trim_info = f" | Trimmed: {self.total_trimmed}" if self.total_trimmed > 0 else ""
         
         final = (
-            f'\tROUNDS = {self.total_rounds:,.0f}  |  '
+            f'\tROUNDS = {self.total_rounds:,.0f}{trim_info}  |  '
             f'TOTAL = {self.total_balance:,.0f} RSD  |  '
             f'HOURS: {self.total_hours:,.2f}h  |  '
             f'din/h: {self.total_balance/self.total_hours:,.0f} RSD  |  '
@@ -261,7 +316,7 @@ class BettingStatsAnalyzer:
             f'\n           {wins_percent_str[:-3]}'
             f'\n      {'_'*(percent_bar_length//2)}'
             f'\n      {title_axis}'
-            f'\n{wins_visual_str[:-1]}'  # Ukloni poslednji \n
+            f'\n{wins_visual_str[:-1]}'
         )
         
         print(final)
@@ -277,10 +332,9 @@ def main(config: BettingConfig):
     analyzer = BettingStatsAnalyzer(config)
     
     # Analiziraj sve bookmaker-e
-
     summaries = []
     for bookmaker in bookmakers:
-        if config.full_output is True:
+        if config.full_output:
             print(f"\n{'='*120}")
             print(f"Analiziram: {bookmaker.upper()}")
             print('='*120)
@@ -298,14 +352,14 @@ if __name__ == '__main__':
     # Konfiguracija
     CASHOUT = 2.0
     
-    BETTING_ORDER = [25,50,100,200,400,800,1600]
+    BETTING_ORDER = [25, 50, 100, 200, 400, 800, 1600]
     MAX_LOSS = len(BETTING_ORDER)
     
     config = BettingConfig(
-        bet_order = BETTING_ORDER,
-        auto_cashout = CASHOUT,
-        max_loss_streak = MAX_LOSS if MAX_LOSS<=len(BETTING_ORDER) else len(BETTING_ORDER),
-        full_output = True
+        bet_order=BETTING_ORDER,
+        auto_cashout=CASHOUT,
+        max_loss_streak=MAX_LOSS if MAX_LOSS <= len(BETTING_ORDER) else len(BETTING_ORDER),
+        full_output=True
     )
     
     main(config)
