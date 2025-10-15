@@ -59,9 +59,23 @@ class BettingStatsAnalyzer:
         df = df.where(pd.notnull(df), None)
         return df.to_dict(orient="records")
     
+    def lossless_end(self, end_table: list):
+        auto = self.config.auto_cashout
+
+        for i, bet in enumerate(reversed(end_table)):
+            score = float(bet['score'])
+            if score > auto:
+                # ako je poslednji bio win, ne treba seći
+                return None if i == 0 else -i
+
+        # ako smo došli do početka bez win-a
+        return None
+            
+    
     def analyze_bookmaker(self, bookmaker_name: str) -> BookmakerStats:
         """Analiziraj podatke za jedan bookmaker"""
         bet_table = self.load_csv(bookmaker_name)
+        length = self.lossless_end(bet_table)
         
         # Početne vrednosti
         total_balance = 0
@@ -81,7 +95,9 @@ class BettingStatsAnalyzer:
         if bookmaker_name not in self.money_needed_per_bookmaker:
             self.money_needed_per_bookmaker[bookmaker_name] = 0
         
-        for i, bet in enumerate(bet_table):
+        self.lossless_end(bet_table[-self.config.max_loss_streak:])
+        
+        for i, bet in enumerate(bet_table[:length]):
             # Čitaj vreme i skor
             total_time = int(bet['sec']) if bet['sec'] is not None else 0
             score = float(bet['score'])
@@ -180,10 +196,11 @@ class BettingStatsAnalyzer:
             print('_' * 120)
             
         final = (
-            f'\t*** STATS {stats.name.upper()}:'.ljust(24) +
-            f'total = {stats.total_balance:,.0f} RSD'.ljust(22) +
-            f'din/h: {stats.total_balance/stats.hours_played:,.0f} RSD'.ljust(22) +
-            f'Money needed: {stats.money_needed:,.0f} RSD ***'.ljust(22)
+            f'\t*** STATS {stats.name.upper()}:'.ljust(28) +
+            f'total = {stats.total_balance:,.0f} RSD'.ljust(24) +
+            f'din/h: {stats.total_balance/stats.hours_played:,.0f} RSD'.ljust(24) +
+            f'Money needed: {stats.money_needed:,.0f} RSD'.ljust(33) +
+            f'({stats.big_losses:,.0f}) ***'.ljust(6)
         )
         
         if self.config.full_output is True:
@@ -279,9 +296,10 @@ def main(config: BettingConfig):
 if __name__ == '__main__':
     """Glavna funkcija"""
     # Konfiguracija
-    CASHOUT = 2.2
-    MAX_LOSS = 1
-    BETTING_ORDER = [10]
+    CASHOUT = 2.0
+    
+    BETTING_ORDER = [25,50,100,200,400,800,1600]
+    MAX_LOSS = len(BETTING_ORDER)
     
     config = BettingConfig(
         bet_order = BETTING_ORDER,

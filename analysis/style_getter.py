@@ -112,7 +112,8 @@ def test_betting_styles(
     end_cashout: float = 2.50,
     step_cashout: float = 0.01,
     win_per_round_order: List[int] = None,
-    max_bet: float = 11_000
+    max_bet: float = 11_000,
+    max_cycle: int = None
 ):
     """
     Testira različite betting style-ove za opseg auto_cashout vrednosti
@@ -121,6 +122,7 @@ def test_betting_styles(
         start_cashout: Početna vrednost auto cashout
         end_cashout: Krajnja vrednost auto cashout
         win_per_round_order: Željeni dobici po rundama
+        max_cycle: Maksimalan broj povećavanja uloga pre vraćanja na početak
     """
     if win_per_round_order is None:
         win_per_round_order = [35, 30, 20, 15]
@@ -138,6 +140,7 @@ def test_betting_styles(
         
         # Generiši betting order
         betting_order = calculator.generate_betting_order(auto_cashout, win_per_round_order)
+        betting_order = betting_order[:] if not max_cycle else betting_order[:max_cycle]
         
         # Kreiraj config i analiziraj
         config = betting_stats.BettingConfig(
@@ -170,16 +173,18 @@ def test_betting_styles(
 
 if __name__ == '__main__':
     # Parametri za testiranje
-    START_CASHOUT = 2
-    END_CASHOUT = 5
+    START_CASHOUT = 1.8
+    END_CASHOUT = 2.5
     STEP_CASHOUT = 0.02
-    WINNING_ORDER = [100,80,60,10]
-    MAX_BET = 200_000
+    WINNING_ORDER = [25]
+    MAX_BET = 24000
+    MAX_CYCLE = 8
     
     test_betting_styles(
         start_cashout=START_CASHOUT,
         end_cashout=END_CASHOUT,
         step_cashout=STEP_CASHOUT,
         win_per_round_order=WINNING_ORDER,
-        max_bet=MAX_BET
+        max_bet=MAX_BET,
+        max_cycle=MAX_CYCLE
     )
