@@ -1,9 +1,11 @@
 SERVERS:
-    Mozzart == MaxBet == Merkur
-    BalkanBet
+    Mozzart == MaxBet == Merkur == BetOle
+    Admiral == Meridian == VolcanoBet
     Soccer == Bet365
-    Admiral == Meridian
+    StarBet == Rizk
+    BalkanBet
     King
+    
     1XBet
 
 LIMTS:
@@ -14,8 +16,14 @@ LIMTS:
     Admiral = 11_000
     MaxBet = 11_000
     Merkur = 11_000
-    1XBet = 11_000
+    King = 11_000
     Bet365 = 11_000
+    BetOle = 11_000
+    StarBet = 11_000
+    Rizk = 11_000
+    VolcanoBet = 5_000
+
+    1XBet = 11_000
     
 
 
@@ -131,4 +139,28 @@ LIMTS:
         width: 100vw !important;
         height: 100vh !important;
     }
+}
+
+{
+    StarBet - CSS-Done
+    /* Insert code here... */
+    
+    .iframe-back {display: none !important}
+    div#divProdukti {padding-top: 0 !important; z-index: 1000}
+}
+
+{
+    Rizk - CSS-Done
+    /* Insert code here... */
+
+    iframe#game-iframe {
+        height: 100vh !important;
+        width: 100vw !important;
+        z-index: 1000;
+    }
+    div#game-view {padding: 0 !important; height: 100vh !important}
+    div#game-iframe-container {padding: 0 !important}
+    .gameview-wrapper {height: 100vh !important}
+    header#topBar {display: none !important}
+    div#wrap-btn-bar {display: none}
 }

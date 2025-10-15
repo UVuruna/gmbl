@@ -1,0 +1,41 @@
+{
+  "type": "TEMPORARY_VIDEO_REGIONS",
+  "note": "Temporary regioni za video ekstrakciju",
+  "source_video": "2025-10-07 12-20-05.mkv",
+  "video_resolution": "3840x2160",
+  "created": "2025-10-13T18:35:09.436565",
+  "regions": [
+    {
+      "name": "region_1",
+      "x": 554,
+      "y": 319,
+      "width": 1352,
+      "height": 173,
+      "description": "Temp region"
+    },
+    {
+      "name": "region_2",
+      "x": 2490,
+      "y": 262,
+      "width": 1252,
+      "height": 372,
+      "description": "Temp region"
+    },
+    {
+      "name": "region_3",
+      "x": 554,
+      "y": 1445,
+      "width": 1328,
+      "height": 171,
+      "description": "Temp region"
+    },
+    {
+      "name": "region_4",
+      "x": 2474,
+      "y": 1384,
+      "width": 1345,
+      "height": 172,
+      "description": "Temp region"
+    }
+  ]
+}

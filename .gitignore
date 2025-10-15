@@ -99,6 +99,8 @@ data/models/*.pkl
 data/models/*.h5
 data/models/*.pth
 
+data/video_screenshots
+
 # Coordinates - IMPORTANT: Backup before committing!
 # Uncomment to track your coordinates (be careful with sensitive screen positions):
 # !data/coordinates/bookmaker_coords.json
