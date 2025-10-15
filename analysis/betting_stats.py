@@ -250,11 +250,11 @@ class BettingStatsAnalyzer:
         
         trim_info = f" [trimmed: {stats.trimmed_rounds}]" if stats.trimmed_rounds > 0 else ""
         final = (
-            f'\t*** STATS {stats.name.upper()}:'.ljust(28) +
+            f'\t***   STATS {stats.name.upper()}:'.ljust(28) +
             f'total = {stats.total_balance:,.0f} RSD'.ljust(24) +
             f'din/h: {stats.total_balance/stats.hours_played:,.0f} RSD'.ljust(24) +
-            f'Money needed: {stats.money_needed:,.0f} RSD'.ljust(33) +
-            f'({stats.big_losses:,.0f}) ***{trim_info}'.ljust(6)
+            f'Money needed: {stats.money_needed:,.0f} RSD'.ljust(28) +
+            f'({stats.big_losses:,.0f}) {trim_info:>13}   ***'
         )
         
         if self.config.full_output:
@@ -350,9 +350,9 @@ def main(config: BettingConfig):
 if __name__ == '__main__':
     """Glavna funkcija"""
     # Konfiguracija
-    CASHOUT = 2.0
+    CASHOUT = 5.0
     
-    BETTING_ORDER = [25, 50, 100, 200, 400, 800, 1600]
+    BETTING_ORDER = [25, 50, 100, 200, 400, 800]
     MAX_LOSS = len(BETTING_ORDER)
     
     config = BettingConfig(
