@@ -1,34 +1,22 @@
 """
-Data Extractor - Excel/CSV Parser
-Konvertuje Excel (.xlsx) u CSV i parsira podatke iz raznih formata
+Data Extractor V2 - Chunk Parser with Overlap Detection & Time Interpolation
+Parsira txt fajl sa Break timestamp-ima i score-ovima, uklanja preklapanja i interpolira vremena
 """
 
 import re
 import pandas as pd
 from pathlib import Path
-from typing import List, Union
+from datetime import datetime, timedelta
+from typing import List, Dict, Union, Optional
 
 
 class ScoreParser:
-    """Parser za rezultate u različitim formatima"""
+    """Parser za score vrednosti"""
     
     @staticmethod
     def parse(score: Union[str, float, None]) -> float:
         """
-        Parsira string sa rezultatom u razlicitim formatima i vraca float.
-        Podrzava formate:
-          - '1.28', '1,28', '1:28'
-          - sufiks 'x' ili '%' (bice uklonjen)
-          - thousands separators: '1,000.23' i '1.000,23'
-        
-        Args:
-            score: String ili broj za parsiranje
-            
-        Returns:
-            float: Parsiran rezultat
-            
-        Raises:
-            ValueError: Ako se rezultat ne može parsirati
+        Parsira string sa score-om u razlicitim formatima i vraca float.
         """
         if score is None:
             raise ValueError("score is None")
@@ -48,13 +36,10 @@ class ScoreParser:
             last_dot = s.rfind('.')
             
             if last_comma > last_dot:
-                # Zarez je decimalni separator
                 s = s.replace('.', '').replace(',', '.')
             else:
-                # Tacka je decimalni separator
                 s = s.replace(',', '')
         else:
-            # Samo zarez - tretiraj kao decimalnu tacku
             if ',' in s:
                 s = s.replace(',', '.')
         
@@ -68,152 +53,304 @@ class ScoreParser:
         return float(s)
 
 
-class DataExtractor:
-    """Ekstraktor podataka iz fajlova"""
+class ChunkData:
+    """Predstavlja jedan chunk sa timestamp-om i score-ovima"""
+    
+    def __init__(self, timestamp: Optional[datetime], scores: List[float]):
+        self.timestamp = timestamp
+        self.scores = scores
+    
+    def __repr__(self):
+        ts_str = self.timestamp.strftime("%Y-%m-%d %H:%M:%S") if self.timestamp else "None"
+        return f"Chunk(ts={ts_str}, scores={len(self.scores)})"
+
+
+class OverlapDetector:
+    """Detektuje preklapanja između chunk-ova"""
+    
+    @staticmethod
+    def find_overlap_length(upper_chunk: List[float], lower_chunk: List[float]) -> int:
+        """
+        Pronalazi duzinu preklapanja: sufix gornjeg = prefix donjeg
+        
+        Args:
+            upper_chunk: Gornji chunk (noviji u txt fajlu)
+            lower_chunk: Donji chunk (stariji u txt fajlu)
+            
+        Returns:
+            Duzina preklapanja (broj elemenata)
+        """
+        max_overlap = min(len(upper_chunk), len(lower_chunk))
+        
+        for overlap_len in range(max_overlap, 0, -1):
+            upper_suffix = upper_chunk[-overlap_len:]
+            lower_prefix = lower_chunk[:overlap_len]
+            
+            if upper_suffix == lower_prefix:
+                return overlap_len
+        
+        return 0
+    
+    @staticmethod
+    def remove_overlaps(chunks: List[ChunkData]) -> List[ChunkData]:
+        """
+        Uklanja preklapajuce sufixe iz gornjih chunk-ova
+        
+        Args:
+            chunks: Lista chunk-ova (od najnovijeg ka najstarijem)
+            
+        Returns:
+            Lista chunk-ova sa uklonjenim preklapanjima
+        """
+        if len(chunks) <= 1:
+            return chunks
+        
+        result = []
+        
+        for i in range(len(chunks) - 1):
+            upper = chunks[i]
+            lower = chunks[i + 1]
+            
+            overlap_len = OverlapDetector.find_overlap_length(upper.scores, lower.scores)
+            
+            if overlap_len > 0:
+                # Skrati gornji chunk
+                trimmed_scores = upper.scores[:-overlap_len]
+                result.append(ChunkData(upper.timestamp, trimmed_scores))
+                print(f"  Chunk {i}: Uklonjeno {overlap_len} preklapajucih skorova")
+            else:
+                result.append(upper)
+        
+        # Poslednji chunk ostaje netaknut
+        result.append(chunks[-1])
+        
+        return result
+
+
+class TimeInterpolator:
+    """Interpolator za racunanje vremena za sve skorove"""
+    
+    @staticmethod
+    def interpolate_times(chunks: List[ChunkData]) -> List[Dict]:
+        """
+        Racuna TIME i SEC za sve skorove
+        
+        Args:
+            chunks: Lista chunk-ova (od najstarijeg ka najnovijem nakon reverse)
+            
+        Returns:
+            Lista {'score', 'time', 'sec'}
+        """
+        results = []
+        
+        # Izdvoj chunk-ove sa timestamp-om
+        chunks_with_ts = [c for c in chunks if c.timestamp is not None]
+        
+        if not chunks_with_ts:
+            raise ValueError("Nema chunk-ova sa timestamp-om!")
+        
+        # Izracunaj prosecno vreme po skoru
+        first_ts = chunks_with_ts[0].timestamp
+        last_ts = chunks_with_ts[-1].timestamp
+        total_seconds = (last_ts - first_ts).total_seconds()
+        
+        total_scores = sum(len(c.scores) for c in chunks_with_ts)
+        avg_seconds_per_score = total_seconds / total_scores if total_scores > 0 else 0
+        
+        print(f"\n  Prosečno vreme po skoru: {avg_seconds_per_score:.2f} sec")
+        print(f"  Ukupno vreme: {total_seconds:.0f} sec")
+        print(f"  Ukupno skorova sa timestamp-om: {total_scores}")
+        
+        current_time = first_ts
+        current_sec = 0
+        
+        for chunk in chunks:
+            if chunk.timestamp is None:
+                # Ekstrapolacija unazad pre prvog timestamp-a
+                for score in chunk.scores:
+                    current_time -= timedelta(seconds=avg_seconds_per_score)
+                    current_sec -= avg_seconds_per_score
+                    
+                    results.append({
+                        'score': score,
+                        'time': current_time,
+                        'sec': int(round(current_sec))
+                    })
+                
+                # Reset na prvi timestamp
+                current_time = first_ts
+                current_sec = 0
+            else:
+                # Chunk sa timestamp-om
+                for i, score in enumerate(chunk.scores):
+                    results.append({
+                        'score': score,
+                        'time': current_time,
+                        'sec': int(round(current_sec))
+                    })
+                    
+                    current_time += timedelta(seconds=avg_seconds_per_score)
+                    current_sec += avg_seconds_per_score
+        
+        return results
+
+
+class DataExtractorV2:
+    """Ekstraktor podataka iz txt fajla sa Break timestamp-ima"""
+    
+    BREAK_PATTERN = r'Break - (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})'
+    TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
     
     def __init__(self, logs_dir: str = "documentation/logs"):
         self.logs_dir = Path(logs_dir)
         self.logs_dir.mkdir(parents=True, exist_ok=True)
     
-    def convert_excel_to_csv(self, filename: str) -> str:
+    def parse_txt_file(self, filename: str) -> List[ChunkData]:
         """
-        Konvertuje Excel (.xlsx) fajl u CSV
+        Parsira txt fajl i izvlaci chunk-ove
         
         Args:
-            filename: Ime fajla bez ekstenzije
+            filename: Ime fajla (sa ili bez ekstenzije)
             
         Returns:
-            str: Putanja do kreiranog CSV fajla
+            Lista ChunkData objekata (od najnovijeg ka najstarijem)
         """
-        excel_path = self.logs_dir / f"{filename}.xlsx"
-        csv_path = self.logs_dir / f"{filename}.csv"
+        if not filename.endswith('.txt'):
+            filename += '.txt'
         
-        if not excel_path.exists():
-            raise FileNotFoundError(f"Excel file not found: {excel_path}")
-        
-        # Učitaj Excel i sačuvaj kao CSV
-        df = pd.read_excel(excel_path)
-        df.to_csv(csv_path, index=False)
-        
-        print(f"✓ Converted: {excel_path.name} → {csv_path.name}")
-        return str(csv_path)
-    
-    def extract_from_text(self, filename: str) -> List[float]:
-        """
-        Ekstraktuje brojeve iz text fajla
-        
-        Args:
-            filename: Ime fajla bez ekstenzije
-            
-        Returns:
-            List[float]: Lista parsiranih brojeva
-        """
-        txt_path = self.logs_dir / f"{filename}.txt"
+        txt_path = self.logs_dir / filename
         
         if not txt_path.exists():
             raise FileNotFoundError(f"Text file not found: {txt_path}")
         
-        data_list = []
-        
         with open(txt_path, 'r', encoding='utf-8') as f:
-            raw_data = f.readlines()
+            content = f.read()
         
-        for raw_row in raw_data:
-            row = raw_row.split()
-            parsed_row = [ScoreParser.parse(item) for item in row]
-            data_list.extend(parsed_row)
+        chunks = []
+        current_scores = []
         
-        return data_list
-    
-    @staticmethod
-    def split_into_chunks(data: List) -> List[List]:
-        """Podeli listu na delove određene dužine"""
-        return [data[i:i + 60] for i in range(0, len(data), 60)]
-    
-    @staticmethod
-    def fix_collection_order(
-        data: List[float],
-        first_to_last: bool
-    ) -> List[float]:
-        """
-        Prilagođava redosled podataka na osnovu načina prikupljanja
+        lines = content.strip().split('\n')
         
-        Args:
-            data: Lista svih podataka
-            first_to_last: Da li su screenshot-ovi od prvog ka poslednjem
+        for line in lines:
+            line = line.strip()
             
-        Returns:
-            List[float]: Podaci u ispravnom redosledu
-        """
-
-        chunks = DataExtractor.split_into_chunks(data)
-        print(chunks)
+            if not line:
+                continue
+            
+            # Proveri da li je Break linija
+            match = re.match(self.BREAK_PATTERN, line)
+            
+            if match:
+                # Sacuvaj prethodni chunk ako postoji
+                if current_scores:
+                    chunks.append(ChunkData(None, current_scores))
+                    current_scores = []
+                
+                # Parsiraj timestamp
+                timestamp_str = match.group(1)
+                timestamp = datetime.strptime(timestamp_str, self.TIMESTAMP_FORMAT)
+                
+                # Kreiraj novi chunk sa timestamp-om
+                chunks.append(ChunkData(timestamp, []))
+            else:
+                # Parsiraj score-ove iz linije
+                score_strings = line.split()
+                
+                for score_str in score_strings:
+                    try:
+                        score = ScoreParser.parse(score_str)
+                        
+                        if chunks:
+                            chunks[-1].scores.append(score)
+                        else:
+                            current_scores.append(score)
+                    except ValueError:
+                        print(f"  ⚠ Ne mogu parsirati: '{score_str}'")
         
-        if first_to_last:
-            # Obrni svaki chunk pojedinačno
-            result = []
-            for chunk in chunks:
-                chunk.reverse()
-                result.extend(chunk)
-            return result
-        else:
-            # Obrni redosled chunk-ova
-            chunks.reverse()
-            return [item for chunk in chunks for item in chunk]
+        # Dodaj preostale skorove ako postoje
+        if current_scores:
+            chunks.append(ChunkData(None, current_scores))
+        
+        return chunks
     
-    def process_file(
-        self,
-        filename: str,
-        first_to_last: bool
-    ) -> List[float]:
+    def process_file(self, filename: str) -> pd.DataFrame:
         """
         Kompletna obrada fajla
         
         Args:
             filename: Ime fajla bez ekstenzije
-            first_to_last: Redosled screenshot-ova
             
         Returns:
-            List[float]: Obrađeni podaci
+            DataFrame sa kolonama SCORE, TIME, SEC
         """
-        data = self.extract_from_text(filename)
-        return self.fix_collection_order(data, first_to_last)
-
-
-def interactive_mode():
-    """Interaktivni mod za ekstrakciju podataka"""
-    print("=" * 84)
-    print("DATA EXTRACTOR - Excel/CSV/Text Parser")
-    print("=" * 84)
-    
-    # Pitaj korisnika za parametre
-    first_to_last_input = input('Da li je od prvog screenshota (enter ako nije): ')
-    first_to_last = True if first_to_last_input.strip() != '' else False
-    
-    # Kreiraj ekstraktor
-    extractor = DataExtractor()
-    
-    # Pokušaj konverziju Excel → CSV ako postoji
-    try:
-        extractor.convert_excel_to_csv('extracted_numbers')
-    except FileNotFoundError:
-        print("Excel file not found, using existing text file...")
-    
-    # Ekstraktuj podatke
-    data = extractor.process_file('extracted_numbers', first_to_last)
-    
-    # Prikaži rezultate
-    print()
-    print(f"BROJ PODATAKA: {len(data)}")
-    print('*' * 84)
-    for value in data:
-        print(value)
-    print('*' * 84)
+        print("=" * 84)
+        print("DATA EXTRACTOR V2 - Chunk Overlap & Time Interpolation")
+        print("=" * 84)
+        
+        # 1. Parse txt fajl
+        print(f"\n1. Parsiram: {filename}.txt...")
+        chunks = self.parse_txt_file(filename)
+        print(f"  ✓ Učitano {len(chunks)} chunk-ova")
+        
+        for i, chunk in enumerate(chunks):
+            print(f"    Chunk {i}: {chunk}")
+        
+        # 2. Ukloni preklapanja
+        print(f"\n2. Uklanjam preklapanja...")
+        chunks_trimmed = OverlapDetector.remove_overlaps(chunks)
+        
+        total_before = sum(len(c.scores) for c in chunks)
+        total_after = sum(len(c.scores) for c in chunks_trimmed)
+        print(f"  ✓ Uklonjeno {total_before - total_after} skorova")
+        print(f"  ✓ Preostalo {total_after} skorova")
+        
+        # 3. Reverse chunk-ove (najstariji prvi)
+        print(f"\n3. Reverse-ujem chunk-ove (najstariji → najnoviji)...")
+        chunks_reversed = list(reversed(chunks_trimmed))
+        
+        for i, chunk in enumerate(chunks_reversed):
+            print(f"    Chunk {i}: {chunk}")
+        
+        # 4. Interpoliraj vremena
+        print(f"\n4. Računam vremena za sve skorove...")
+        data_with_times = TimeInterpolator.interpolate_times(chunks_reversed)
+        
+        # 5. Kreiraj DataFrame
+        print(f"\n5. Kreiram DataFrame...")
+        df = pd.DataFrame(data_with_times)
+        
+        # Formatiraj TIME kolonu
+        df['time'] = df['time'].dt.strftime(self.TIMESTAMP_FORMAT)
+        
+        # Preimenovanje kolona (uppercase)
+        df.columns = ['SCORE', 'TIME', 'SEC']
+        
+        print(f"  ✓ DataFrame kreiran: {len(df)} redova")
+        
+        # 6. Sacuvaj CSV
+        output_path = self.logs_dir / f"{filename}_processed.csv"
+        df.to_csv(output_path, index=False)
+        print(f"\n✓ Sačuvan CSV: {output_path.name}")
+        
+        print("\n" + "=" * 84)
+        print("✓ Procesiranje završeno!")
+        print("=" * 84)
+        
+        return df
 
 
 def main():
     """Glavna funkcija"""
-    interactive_mode()
+    filename = input('Unesi naziv txt fajla (bez ekstenzije, default: extracted_numbers): ')
+    filename = filename.strip() or 'extracted_numbers'
+    
+    extractor = DataExtractorV2()
+    df = extractor.process_file(filename)
+    
+    print(f"\nPregled prvih 10 redova:")
+    print(df.head(10))
+    print(f"\nPregled poslednjih 10 redova:")
+    print(df.tail(10))
 
 
 if __name__ == '__main__':
