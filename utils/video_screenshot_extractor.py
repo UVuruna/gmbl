@@ -1,6 +1,6 @@
 # utils/video_screenshot_extractor.py
-# VERSION: 3.0
-# REVERSED ORDER + MASTER COLLAGES + TIMESTAMPS
+# VERSION: 3.1
+# TAČNI FREJMOVI + START OFFSET + REVERSED ORDER + MASTER COLLAGES
 
 import cv2
 import json
@@ -16,7 +16,9 @@ class VideoScreenshotExtractor:
     """
     Ekstraktuje screenshot-ove sa OBRNUTIM redosledom i pravi master kolaže.
     
-    v3.0:
+    v3.1:
+    - ROUND frame_number za tačne frejmove (bez mutnih slika)
+    - Start offset (default 1 minut)
     - Screenshot-ovi po video snimku OBRNUTI (poslednji gore → prvi dole)
     - Master kolaž za svaki region (svi screenshot-ovi svih videa)
     - Timestamp-ovi pored screenshot-ova
@@ -67,15 +69,27 @@ class VideoScreenshotExtractor:
             return None
     
     def extract_frame_at_time(self, video_path: Path, time_minutes: float) -> np.ndarray:
-        """Ekstraktuje frame na određenom vremenu."""
+        """
+        Ekstraktuje frame na određenom vremenu.
+        PRECIZNO postavlja na tačan frame broj (bez interpolacije).
+        """
         cap = cv2.VideoCapture(str(video_path))
         
         if not cap.isOpened():
             raise ValueError(f"Ne mogu otvoriti video: {video_path}")
         
         fps = cap.get(cv2.CAP_PROP_FPS)
-        frame_number = int(time_minutes * 60 * fps)
+        
+        # ROUND na najbliži ceo frame broj (ne int koji seče)
+        frame_number = round(time_minutes * 60 * fps)
+        
+        # Postavi na TAČAN frame
         cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+        
+        # Proveri da li je stvarno na pravom frame-u
+        actual_frame = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
+        if actual_frame != frame_number:
+            print(f"  ⚠️  Frame mismatch: tražen {frame_number}, dobijen {actual_frame}")
         
         ret, frame = cap.read()
         cap.release()
@@ -166,7 +180,7 @@ class VideoScreenshotExtractor:
         try:
             font_large = ImageFont.truetype("arial.ttf", 28)
             font_small = ImageFont.truetype("arial.ttf", 16)
-            font_break = ImageFont.truetype("arialbd.ttf", 20)  # Manji bold za Break
+            font_break = ImageFont.truetype("arialbd.ttf", 20)
         except:
             font_large = ImageFont.load_default()
             font_small = ImageFont.load_default()
@@ -187,7 +201,6 @@ class VideoScreenshotExtractor:
             # --- "Break - YYYY-MM-DD HH:MM:SS" U ISTOJ LINIJI ---
             break_y = current_y + (break_height // 2) - 10
             
-            # Format: "Break - 2025-10-08 05:20:05"
             if timestamp:
                 break_text = f"Break - {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
             else:
@@ -204,7 +217,6 @@ class VideoScreenshotExtractor:
                 width=2
             )
             
-            # "Break - timestamp" text
             draw.text((x_offset + 5, break_y), break_text, fill=(255, 255, 0), font=font_break)
             
             current_y += break_height
@@ -212,7 +224,7 @@ class VideoScreenshotExtractor:
             # --- SCREENSHOT ---
             collage.paste(img, (x_offset, current_y))
             
-            # Separator line (ako nije poslednji)
+            # Separator line
             if i < len(pil_images) - 1:
                 line_y = current_y + img.height + (spacing // 2)
                 draw.line([(20, line_y), (total_width - 20, line_y)], 
@@ -227,9 +239,15 @@ class VideoScreenshotExtractor:
         video_path: Path,
         interval_minutes: int = 16,
         output_dir: Path = None,
-        include_final_frame: bool = False
+        include_final_frame: bool = False,
+        start_offset_minutes: float = 1.0
     ) -> Dict[str, Path]:
-        """Procesuje jedan video - screenshot-ovi OBRNUTIM redom."""
+        """
+        Procesuje jedan video - screenshot-ovi OBRNUTIM redom.
+        
+        Args:
+            start_offset_minutes: Počni od ovog minuta (default 1.0 = 60s)
+        """
         if output_dir is None:
             output_dir = Path("data/video_screenshots")
         
@@ -247,19 +265,26 @@ class VideoScreenshotExtractor:
         
         print(f"\n📹 {video_path.name}")
         print(f"⏱️  Trajanje: {duration_minutes:.1f} min")
+        print(f"🎬 FPS: {fps:.2f}")
         if start_time:
             print(f"🕐 Početak: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
         
-        # Time points
-        time_points = list(range(0, int(duration_minutes), interval_minutes))
+        # Time points - POČNI OD start_offset_minutes
+        time_points = []
+        current_time = start_offset_minutes
+        
+        while current_time < duration_minutes:
+            time_points.append(current_time)
+            current_time += interval_minutes
         
         # Dodaj završni frame ako treba
         if include_final_frame:
             final_time_min = (frame_count / fps - 1.0) / 60.0
-            if final_time_min > 0:
+            if final_time_min > 0 and final_time_min not in time_points:
                 time_points.append(final_time_min)
         
-        print(f"📸 Ekstrakcija na: {[f'{t:.0f}min' for t in time_points]}")
+        print(f"📸 Ekstrakcija na: {[f'{t:.1f}min' for t in time_points]}")
+        print(f"   (počinje od {start_offset_minutes:.1f} min umesto 0)")
         
         # Ekstraktuj
         regions_over_time = {region['name']: [] for region in self.regions}
@@ -287,10 +312,10 @@ class VideoScreenshotExtractor:
                 
                 is_final = (time_min == time_points[-1] and include_final_frame)
                 marker = " [ZAVRŠNI]" if is_final else ""
-                print(f"  ✓ {time_min:.0f} min{marker}")
+                print(f"  ✓ {time_min:.1f} min{marker}")
                 
             except Exception as e:
-                print(f"  ✗ {time_min:.0f} min - {e}")
+                print(f"  ✗ {time_min:.1f} min - {e}")
         
         # Kreiraj kolaže za ovaj video (OBRNUTIM redom)
         collage_paths = {}
@@ -343,13 +368,13 @@ class VideoScreenshotExtractor:
             images = [img for img, _ in data_list]
             timestamps = [ts for _, ts in data_list]
             
-            # Kreiraj master kolaž (već je obrnutim redom jer su videi dodavani hronološki)
+            # Kreiraj master kolaž
             collage = self.create_vertical_collage_with_timestamps(
                 images,
                 timestamps,
                 f"MASTER - {region_name}",
-                spacing=40,  # Malo veći razmak za master
-                break_height=40  # Malo veći Break za master
+                spacing=40,
+                break_height=40
             )
             
             output_filename = f"MASTER_{region_name}_collage.png"
@@ -366,9 +391,15 @@ class VideoScreenshotExtractor:
         video_folder: Path,
         pattern: str = "*.mp4",
         interval_minutes: int = 16,
-        include_final_frame: bool = True
+        include_final_frame: bool = True,
+        start_offset_minutes: float = 1.0
     ) -> List[Dict]:
-        """Procesuje sve videe i pravi master kolaže."""
+        """
+        Procesuje sve videe i pravi master kolaže.
+        
+        Args:
+            start_offset_minutes: Počni screenshot-ove od ovog minuta (default 1.0)
+        """
         video_folder = Path(video_folder)
         video_files = sorted(video_folder.glob(pattern))
         
@@ -388,6 +419,7 @@ class VideoScreenshotExtractor:
         print(f"\n{'='*70}")
         print(f"🎬 {len(video_files)} video fajlova")
         print(f"⏱️  Interval: {interval_minutes} min")
+        print(f"▶️  Start offset: {start_offset_minutes:.1f} min")
         print(f"🎯 Završni frame: {'DA (samo poslednji)' if include_final_frame else 'NE'}")
         print(f"{'='*70}")
         
@@ -407,7 +439,8 @@ class VideoScreenshotExtractor:
                 collage_paths = self.process_single_video(
                     video_path,
                     interval_minutes=interval_minutes,
-                    include_final_frame=include_final
+                    include_final_frame=include_final,
+                    start_offset_minutes=start_offset_minutes
                 )
                 
                 results.append({
@@ -442,11 +475,13 @@ if __name__ == "__main__":
     import argparse
     
     parser = argparse.ArgumentParser(
-        description="Video screenshot extractor v3.0 - REVERSED + MASTER kolaži"
+        description="Video screenshot extractor v3.1 - REVERSED + MASTER + TAČNI FREJMOVI"
     )
     
     parser.add_argument("video_folder", type=str, help="Folder sa video fajlovima")
     parser.add_argument("--interval", type=int, default=16, help="Interval u minutima")
+    parser.add_argument("--start-offset", type=float, default=1.0, 
+                       help="Počni od ovog minuta (default 1.0)")
     parser.add_argument("--pattern", type=str, default="*.mp4", help="Glob pattern")
     parser.add_argument("--regions-config", type=str, 
                        default="data/coordinates/video_regions.json",
@@ -474,7 +509,8 @@ if __name__ == "__main__":
         extractor.process_single_video(
             video_path,
             interval_minutes=args.interval,
-            include_final_frame=include_final
+            include_final_frame=include_final,
+            start_offset_minutes=args.start_offset
         )
         
         # Master kolaž i za single
@@ -484,5 +520,6 @@ if __name__ == "__main__":
             Path(args.video_folder),
             pattern=args.pattern,
             interval_minutes=args.interval,
-            include_final_frame=include_final
+            include_final_frame=include_final,
+            start_offset_minutes=args.start_offset
         )
