@@ -1,39 +1,43 @@
 # apps/rgb_collector.py
-# VERSION: 1.0
-# PROGRAM 2: RGB data collection for ML training
-# Collects: RGB values from phase_region and play_button_coords
+# VERSION: 1.1 - Updated for new coordinate system
+# PURPOSE: Collect RGB samples for ML training
+# COLLECTS: phase_region → phase_rgb, play_button_coords → button_rgb
 
 import sys
 import time
 import sqlite3
 import numpy as np
 from pathlib import Path
-from typing import Dict, Optional, Tuple
-from multiprocessing import Process, Queue
+from typing import Dict, Optional, List, Tuple
+from multiprocessing import Process, Queue, Event
+from multiprocessing.synchronize import Event as EventType
 from datetime import datetime
+import mss
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from apps.base_app import BaseAviatorApp, get_number_input
-from core.screen_reader import ScreenReader
-from logger import AviatorLogger
+from core.coord_manager import CoordsManager
+from logger import init_logging, AviatorLogger
 
 
-class RGBCollector(BaseAviatorApp):
+class RGBCollector:
     """
-    RGB data collector for ML model training.
-    
-    Collects:
-    - Average RGB from phase_region (for phase detection model)
-    - Average RGB from play_button_coords (for bet state detection - 3 clusters)
+    RGB data collector for ML training.
+    Collects RGB statistics from phase_region and play_button_coords.
     """
     
     DATABASE_NAME = "rgb_training_data.db"
+    COLLECTION_INTERVAL = 0.5  # 2 samples per second
     
     def __init__(self):
-        super().__init__("RGBCollector")
+        init_logging()
+        self.logger = AviatorLogger.get_logger("RGBCollector")
         self.db_path = Path("data/databases") / self.DATABASE_NAME
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        self.coords_manager = CoordsManager()
+        self.shutdown_event = Event()
+        self.processes = []
     
     def setup_database(self):
         """Create database tables."""
@@ -42,214 +46,252 @@ class RGBCollector(BaseAviatorApp):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        # Phase RGB data
+        # Phase RGB table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS phase_rgb (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                bookmaker TEXT NOT NULL,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                 r_avg REAL,
                 g_avg REAL,
                 b_avg REAL,
                 r_std REAL,
                 g_std REAL,
-                b_std REAL,
-                label TEXT
+                b_std REAL
             )
         ''')
         
-        # Bet button RGB data
+        # Button RGB table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS button_rgb (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                bookmaker TEXT NOT NULL,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                 r_avg REAL,
                 g_avg REAL,
                 b_avg REAL,
                 r_std REAL,
                 g_std REAL,
-                b_std REAL,
-                label TEXT
+                b_std REAL
             )
         ''')
         
         # Indexes
         cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_phase_bookmaker 
-            ON phase_rgb(bookmaker, timestamp)
+            CREATE INDEX IF NOT EXISTS idx_phase_timestamp 
+            ON phase_rgb(timestamp)
         ''')
         
         cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_button_bookmaker 
-            ON button_rgb(bookmaker, timestamp)
+            CREATE INDEX IF NOT EXISTS idx_button_timestamp 
+            ON button_rgb(timestamp)
         ''')
         
         conn.commit()
         conn.close()
         
-        self.logger.info(f"RGB Database ready: {self.db_path}")
+        self.logger.info(f"RGB database ready: {self.db_path}")
     
-    def create_process(
-        self, 
-        bookmaker: str,
-        layout: str,
-        position: str,
-        coords: Dict,
-        **kwargs
-    ) -> Optional[Process]:
-        """Create RGB collector process for bookmaker."""
-        process = RGBCollectorProcess(
-            bookmaker_name=bookmaker,
-            coords=coords,
-            db_path=self.db_path,
-            shutdown_event=self.shutdown_event
-        )
-        return process
+    def select_bookmakers_interactive(self, num_bookmakers: int) -> List[Tuple[str, str, Dict]]:
+        """Interactive selection of bookmakers and positions."""
+        available_bookmakers = self.coords_manager.get_available_bookmakers()
+        available_positions = self.coords_manager.get_available_positions()
+        
+        if not available_bookmakers:
+            print("\n❌ No bookmakers configured!")
+            return []
+        
+        if not available_positions:
+            print("\n❌ No positions configured!")
+            return []
+        
+        print(f"\n📊 Available bookmakers: {', '.join(available_bookmakers)}")
+        print(f"📐 Available positions: {', '.join(available_positions)}")
+        
+        selected = []
+        
+        for i in range(1, num_bookmakers + 1):
+            print(f"\n--- Bookmaker #{i} ---")
+            
+            while True:
+                bookmaker = input(f"Choose bookmaker: ").strip()
+                if bookmaker in available_bookmakers:
+                    break
+                print(f"❌ Invalid! Choose from: {', '.join(available_bookmakers)}")
+            
+            while True:
+                position = input(f"Choose position for {bookmaker}: ").strip().upper()
+                if position in available_positions:
+                    break
+                print(f"❌ Invalid! Choose from: {', '.join(available_positions)}")
+            
+            coords = self.coords_manager.calculate_coords(bookmaker, position)
+            if coords:
+                selected.append((bookmaker, position, coords))
+                print(f"✅ {bookmaker} @ {position}")
+            else:
+                print(f"❌ Failed to calculate coordinates!")
+        
+        return selected
+    
+    def start_processes(self, bookmakers_config: List[Tuple[str, str, Dict]]):
+        """Start RGB collector processes."""
+        print(f"\n🚀 Starting {len(bookmakers_config)} RGB collectors...")
+        
+        for bookmaker, position, coords in bookmakers_config:
+            process = RGBCollectorProcess(
+                identifier=f"{bookmaker}_{position}",
+                coords=coords,
+                db_path=self.db_path,
+                shutdown_event=self.shutdown_event
+            )
+            process.start()
+            self.processes.append(process)
+            print(f"   ✅ Started: {bookmaker} @ {position}")
+    
+    def wait_for_processes(self):
+        """Wait for all processes."""
+        try:
+            for process in self.processes:
+                process.join()
+        except KeyboardInterrupt:
+            print("\n\n⚠️  Shutdown requested...")
+            self.shutdown_event.set()
+            
+            for process in self.processes:
+                process.join(timeout=5)
+                if process.is_alive():
+                    process.terminate()
     
     def run(self):
         """Main run method."""
         print("\n" + "="*60)
-        print("🎨 RGB COLLECTOR v1.0")
+        print("🎨 RGB COLLECTOR v1.1")
         print("="*60)
-        print("\nCollects RGB values for ML training:")
-        print("  • Phase region (for phase detection)")
-        print("  • Play button region (for bet state: red/orange/green)")
+        print("\nCollects RGB statistics for ML training:")
+        print("  • phase_region → phase_rgb table")
+        print("  • play_button_coords → button_rgb table")
         print("="*60)
         
-        # Setup database
         self.setup_database()
         
-        # Get number of bookmakers
-        num_bookmakers = get_number_input(
-            "\nHow many bookmakers to track? (1-6): ", 1, 6
-        )
+        while True:
+            try:
+                num = int(input("\nHow many bookmakers to track? (1-6): "))
+                if 1 <= num <= 6:
+                    break
+                print("❌ Please enter 1-6")
+            except ValueError:
+                print("❌ Invalid input")
         
-        # Setup bookmakers
-        bookmakers_config = self.setup_bookmakers_interactive(num_bookmakers)
+        bookmakers_config = self.select_bookmakers_interactive(num)
         
-        # Verify regions
-        if not self.verify_regions(bookmakers_config):
+        if not bookmakers_config:
+            print("\n❌ No bookmakers configured!")
             return
         
-        # Start processes
         self.start_processes(bookmakers_config)
         
-        # Wait
         print("\n🎨 Collecting RGB data... (Ctrl+C to stop)")
         self.wait_for_processes()
+        
+        print("\n✅ RGB collection stopped")
 
 
 class RGBCollectorProcess(Process):
     """Worker process for RGB collection."""
     
     BATCH_SIZE = 100
-    COLLECTION_INTERVAL = 0.5  # 500ms between samples
+    COLLECTION_INTERVAL = 0.5
     
     def __init__(
-        self, 
-        bookmaker_name: str,
+        self,
+        identifier: str,
         coords: Dict,
         db_path: Path,
-        shutdown_event
+        shutdown_event: EventType
     ):
-        super().__init__(name=f"RGBCollector-{bookmaker_name}")
-        self.bookmaker_name = bookmaker_name
+        super().__init__(name=f"RGBCollector-{identifier}")
+        self.identifier = identifier
         self.coords = coords
         self.db_path = db_path
         self.shutdown_event = shutdown_event
         
         # Data queues
-        self.phase_queue = Queue(maxsize=1000)
-        self.button_queue = Queue(maxsize=1000)
+        self.phase_queue = []
+        self.button_queue = []
     
-    def setup_readers(self):
-        """Setup screen readers."""
-        self.phase_reader = ScreenReader(self.coords['phase_region'])
-        self.button_reader = ScreenReader(self.coords['play_button_coords'])
-    
-    def calculate_rgb_stats(self, img_array: np.ndarray) -> Optional[Dict]:
+    def calculate_rgb_stats(self, region: Dict) -> Optional[Dict]:
         """
-        Calculate RGB statistics from image array.
+        Calculate RGB statistics for a region.
+        
+        Args:
+            region: Region dict with left, top, width, height
         
         Returns:
-            Dict with avg and std for each channel
+            Dict with r_avg, g_avg, b_avg, r_std, g_std, b_std or None
         """
-        if img_array is None or img_array.size == 0:
-            return None
-        
         try:
-            # Reshape to (pixels, channels)
-            pixels = img_array.reshape(-1, 3)
-            
-            # Calculate statistics
-            r_avg = float(np.mean(pixels[:, 0]))
-            g_avg = float(np.mean(pixels[:, 1]))
-            b_avg = float(np.mean(pixels[:, 2]))
-            
-            r_std = float(np.std(pixels[:, 0]))
-            g_std = float(np.std(pixels[:, 1]))
-            b_std = float(np.std(pixels[:, 2]))
-            
-            return {
-                'r_avg': r_avg,
-                'g_avg': g_avg,
-                'b_avg': b_avg,
-                'r_std': r_std,
-                'g_std': g_std,
-                'b_std': b_std
-            }
+            with mss.mss() as sct:
+                screenshot = sct.grab(region)
+                img = np.array(screenshot)[:, :, :3]  # Remove alpha, keep RGB
+                
+                # Calculate statistics
+                r_avg = float(np.mean(img[:, :, 0]))
+                g_avg = float(np.mean(img[:, :, 1]))
+                b_avg = float(np.mean(img[:, :, 2]))
+                
+                r_std = float(np.std(img[:, :, 0]))
+                g_std = float(np.std(img[:, :, 1]))
+                b_std = float(np.std(img[:, :, 2]))
+                
+                return {
+                    'timestamp': datetime.now().isoformat(),
+                    'r_avg': r_avg,
+                    'g_avg': g_avg,
+                    'b_avg': b_avg,
+                    'r_std': r_std,
+                    'g_std': g_std,
+                    'b_std': b_std
+                }
         except Exception as e:
             return None
     
     def collect_rgb_data(self):
         """Main collection loop."""
-        logger = AviatorLogger.get_logger(f"RGBCollector-{self.bookmaker_name}")
+        logger = AviatorLogger.get_logger(f"RGBCollector-{self.identifier}")
         logger.info("Starting RGB collection")
+        
+        # Get regions
+        phase_region = self.coords.get('phase_region')
+        button_region = self.coords.get('play_button_coords')
+        
+        if not phase_region or not button_region:
+            logger.error("Missing required regions!")
+            return
         
         sample_count = 0
         
         while not self.shutdown_event.is_set():
             try:
-                # Capture phase region
-                phase_img = self.phase_reader.capture_region()
-                if phase_img is not None:
-                    phase_stats = self.calculate_rgb_stats(phase_img)
-                    if phase_stats:
-                        self.phase_queue.put({
-                            'bookmaker': self.bookmaker_name,
-                            'timestamp': datetime.now().isoformat(),
-                            **phase_stats,
-                            'label': None  # Will be labeled later
-                        })
+                # Collect phase RGB
+                phase_stats = self.calculate_rgb_stats(phase_region)
+                if phase_stats:
+                    self.phase_queue.append(phase_stats)
                 
-                # Capture button region
-                button_img = self.button_reader.capture_region()
-                if button_img is not None:
-                    button_stats = self.calculate_rgb_stats(button_img)
-                    if button_stats:
-                        self.button_queue.put({
-                            'bookmaker': self.bookmaker_name,
-                            'timestamp': datetime.now().isoformat(),
-                            **button_stats,
-                            'label': None  # Will be labeled later
-                        })
+                # Collect button RGB
+                button_stats = self.calculate_rgb_stats(button_region)
+                if button_stats:
+                    self.button_queue.append(button_stats)
                 
                 sample_count += 1
                 
-                # Batch insert check
-                if self.phase_queue.qsize() >= self.BATCH_SIZE:
-                    self.batch_insert('phase')
-                if self.button_queue.qsize() >= self.BATCH_SIZE:
-                    self.batch_insert('button')
-                
-                # Progress log
                 if sample_count % 100 == 0:
-                    logger.info(
-                        f"Collected {sample_count} samples "
-                        f"(Phase: {self.phase_queue.qsize()}, "
-                        f"Button: {self.button_queue.qsize()})"
-                    )
+                    logger.info(f"Collected {sample_count} samples")
+                
+                # Batch insert check
+                if len(self.phase_queue) >= self.BATCH_SIZE:
+                    self.batch_insert('phase')
+                if len(self.button_queue) >= self.BATCH_SIZE:
+                    self.batch_insert('button')
                 
                 time.sleep(self.COLLECTION_INTERVAL)
                 
@@ -261,7 +303,7 @@ class RGBCollectorProcess(Process):
         self.batch_insert('phase')
         self.batch_insert('button')
         
-        logger.info(f"Collection finished. Total samples: {sample_count}")
+        logger.info(f"RGB collection stopped. Total samples: {sample_count}")
     
     def batch_insert(self, data_type: str):
         """
@@ -273,43 +315,30 @@ class RGBCollectorProcess(Process):
         queue = self.phase_queue if data_type == 'phase' else self.button_queue
         table = 'phase_rgb' if data_type == 'phase' else 'button_rgb'
         
-        if queue.empty():
+        if not queue:
             return
         
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        batch = []
-        while not queue.empty() and len(batch) < self.BATCH_SIZE:
-            try:
-                batch.append(queue.get_nowait())
-            except:
-                break
+        cursor.executemany(f'''
+            INSERT INTO {table}
+            (timestamp, r_avg, g_avg, b_avg, r_std, g_std, b_std)
+            VALUES (:timestamp, :r_avg, :g_avg, :b_avg, :r_std, :g_std, :b_std)
+        ''', queue)
         
-        if batch:
-            cursor.executemany(f'''
-                INSERT INTO {table}
-                (bookmaker, timestamp, r_avg, g_avg, b_avg, r_std, g_std, b_std, label)
-                VALUES 
-                (:bookmaker, :timestamp, :r_avg, :g_avg, :b_avg, :r_std, :g_std, :b_std, :label)
-            ''', batch)
-            
-            conn.commit()
-        
+        conn.commit()
         conn.close()
+        
+        queue.clear()
     
     def run(self):
         """Process main loop."""
-        logger = AviatorLogger.get_logger(f"RGBCollector-{self.bookmaker_name}")
-        logger.info(f"Starting RGB collector for {self.bookmaker_name}")
-        
         try:
-            self.setup_readers()
             self.collect_rgb_data()
         except Exception as e:
+            logger = AviatorLogger.get_logger(f"RGBCollector-{self.identifier}")
             logger.error(f"Process error: {e}", exc_info=True)
-        finally:
-            logger.info(f"RGB Collector stopped: {self.bookmaker_name}")
 
 
 if __name__ == "__main__":

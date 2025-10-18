@@ -1,6 +1,10 @@
 # utils/batch_video_processor.py
-# VERSION: 2.0
-# Automatski batch processing sa opsegom fajlova (od-do) + završni frame
+# VERSION: 2.3
+# FIXED: Kompatibilnost sa video_screenshot_extractor.py v3.3
+# - Uklonjeni interval_minutes parametri (sada hardcoded u ekstraktoru)
+# - Intervali: 4, 16, 28, 40, 52 min (12 min razlika)
+# - Dodato: --rename opcija za markiranje obrađenih videa
+# - Dodato: --max-height za kontrolu auto-split master kolaža
 
 import sys
 from pathlib import Path
@@ -21,21 +25,30 @@ class BatchVideoProcessor:
     - Summary report
     - Resume capability
     - OPSEG fajlova (od-do po abecednom redu)
+    - AUTO-RENAME obrađenih fajlova (opciono)
+    - AUTO-SPLIT master kolaža > max_height (opciono)
+    
+    v2.3: HARDCODED INTERVALI (4, 16, 28, 40, 52 min) u ekstraktoru
+          + --rename opcija za markiranje obrađenih videa
+          + --max-height za kontrolu auto-split master kolaža
     """
     
     def __init__(self, video_folder: Path, 
-                 interval_minutes: int = 16,
                  regions_config: str = "data/coordinates/video_regions.json",
-                 include_final_frame: bool = True):
+                 include_final_frame: bool = True,
+                 rename_suffix: Optional[str] = None,
+                 max_collage_height: int = 6000):
         self.video_folder = Path(video_folder)
-        self.interval_minutes = interval_minutes
         self.regions_config = regions_config
         self.include_final_frame = include_final_frame
+        self.rename_suffix = rename_suffix
+        self.max_collage_height = max_collage_height
         self.extractor = VideoScreenshotExtractor(regions_config_path=regions_config)
         
         # Tracking
         self.start_time = None
         self.results = []
+        self.renamed_files = []
         self.log_path = Path("data/video_screenshots/processing_log.txt")
         
     def _log(self, message: str, also_print: bool = True):
@@ -50,6 +63,46 @@ class BatchVideoProcessor:
         
         if also_print:
             print(message)
+    
+    def _rename_video(self, video_path: Path, suffix: str) -> Optional[Path]:
+        """
+        Preimenovava video fajl dodavanjem suffixa pre ekstenzije.
+        
+        Args:
+            video_path: Originalni video fajl
+            suffix: Suffix za dodavanje (npr. "DONE")
+        
+        Returns:
+            Path do preimenovanog fajla ili None ako nije uspelo
+        
+        Primer:
+            2025-10-15 05-14-53.mp4 -> 2025-10-15 05-14-53-DONE.mp4
+        """
+        if not suffix:
+            return None
+        
+        # Proveri da li već ima suffix
+        stem = video_path.stem
+        if stem.endswith(f"-{suffix}"):
+            self._log(f"  ⚠️  Već preimenovan: {video_path.name}", also_print=False)
+            return video_path
+        
+        # Kreiraj novo ime
+        new_name = f"{stem}-{suffix}{video_path.suffix}"
+        new_path = video_path.parent / new_name
+        
+        # Proveri da li novi fajl već postoji
+        if new_path.exists():
+            self._log(f"  ⚠️  Fajl već postoji: {new_name}", also_print=False)
+            return None
+        
+        try:
+            video_path.rename(new_path)
+            self._log(f"  ✅ Preimenovan: {video_path.name} -> {new_name}")
+            return new_path
+        except Exception as e:
+            self._log(f"  ❌ Greška pri preimenovanju: {e}")
+            return None
     
     def get_video_files(self, pattern: str = "*.mp4", 
                         start_index: Optional[int] = None,
@@ -144,8 +197,11 @@ class BatchVideoProcessor:
     
     def estimate_time(self, num_videos: int, avg_duration_min: float = 60) -> str:
         """Procenjuje vreme procesovanja."""
-        # Prosečno 2-3 sekunde po screenshot-u
-        screenshots_per_video = avg_duration_min // self.interval_minutes + 1  # +1 za završni
+        # HARDCODED: 5 screenshot-ova po videu (4, 16, 28, 40, 52 min) + 1 završni za poslednji
+        screenshots_per_video = 5
+        if self.include_final_frame:
+            screenshots_per_video += (1 / num_videos)  # Samo poslednji dobija završni
+        
         total_screenshots = num_videos * screenshots_per_video
         estimated_seconds = total_screenshots * 2.5
         
@@ -173,25 +229,28 @@ class BatchVideoProcessor:
         
         # Header
         print("\n" + "="*70)
-        print("🎬 BATCH VIDEO PROCESSING v2.0")
+        print("🎬 BATCH VIDEO PROCESSING v2.2")
         print("="*70)
         print(f"📂 Folder:        {self.video_folder}")
-        print(f"📹 Video fajlova: {len(video_files)}")
+        print(f"🎥 Video fajlova: {len(video_files)}")
         
         if start_index or end_index:
             print(f"📊 Opseg:         [{start_index or 1} - {end_index or '?'}] (po abecedi)")
         
-        print(f"⏱️  Interval:      {self.interval_minutes} minuta")
+        print(f"⏱️  Intervali:     4, 16, 28, 40, 52 min (12 min razlika) @ 10 FPS")
         print(f"🎯 Završni frame: {'DA (SAMO za poslednji u batch-u)' if self.include_final_frame else 'NE'}")
-        print(f"📝 Break separatori: DA (iznad svakog screenshot-a)")
+        print(f"📋 Break separatori: DA (iznad svakog screenshot-a)")
+        print(f"✂️  Master split:  {self.max_collage_height}px (auto-deli ako prelazi)")
         print(f"🔍 Pattern:       {pattern}")
         print(f"⏳ Procenjeno:    ~{self.estimate_time(len(video_files))}")
         print(f"📊 Output:        data/video_screenshots/")
+        if self.rename_suffix:
+            print(f"🏷️  Preimenovanje: Dodaj '-{self.rename_suffix}' nakon obrade")
         print("="*70)
         
         # Prikaži prvi i poslednji fajl
-        print(f"\n📝 Prvi fajl:  {video_files[0].name}")
-        print(f"📝 Zadnji fajl: {video_files[-1].name}\n")
+        print(f"\n📄 Prvi fajl:  {video_files[0].name}")
+        print(f"📄 Zadnji fajl: {video_files[-1].name}\n")
         
         # Potvrda
         response = input("🚀 Nastavi sa obradom? [Y/n]: ").strip().lower()
@@ -204,6 +263,7 @@ class BatchVideoProcessor:
         self._log(f"🚀 START: Batch processing {len(video_files)} video fajlova")
         if start_index or end_index:
             self._log(f"📊 Opseg: [{start_index or 1} - {end_index or len(video_files)}]")
+        self._log(f"⏱️  Intervali: 4, 16, 28, 40, 52 min (HARDCODED @ 10 FPS)")
         self._log(f"{'='*70}")
         
         # Procesuj svaki video
@@ -217,17 +277,17 @@ class BatchVideoProcessor:
             is_last_video = (i == len(video_files))
             include_final_for_this_video = self.include_final_frame and is_last_video
             
-            self._log(f"\n[{i}/{len(video_files)}] (#{global_idx}) 📹 {video_path.name}")
+            self._log(f"\n[{i}/{len(video_files)}] (#{global_idx}) 🎥 {video_path.name}")
             print(f"\n{'─'*70}")
             print(f"[{i}/{len(video_files)}] (#{global_idx}) Processing: {video_path.name}")
             if include_final_for_this_video:
-                print(f"🎯 POSLEDNJI U BATCH-U - dodaje se završni screenshot!")
+                print(f"🎯 POSLEDNJI U BATCH-U - dodaje se završni screenshot (30 frejmova pre kraja)!")
             print(f"{'─'*70}")
             
             try:
+                # FIXED: Više ne prosleđujemo interval_minutes!
                 collage_paths = self.extractor.process_single_video(
                     video_path,
-                    interval_minutes=self.interval_minutes,
                     include_final_frame=include_final_for_this_video
                 )
                 
@@ -238,11 +298,23 @@ class BatchVideoProcessor:
                     'global_index': global_idx,
                     'status': 'success',
                     'collages': len(collage_paths),
-                    'time_seconds': video_time
+                    'time_seconds': video_time,
+                    'renamed': False
                 }
                 
                 self.results.append(result)
                 self._log(f"  ✅ Uspešno za {video_time:.1f}s - {len(collage_paths)} kolaža (OBRNUTO + Break separatori)")
+                
+                # Preimenovanje nakon uspešne obrade
+                if self.rename_suffix:
+                    renamed_path = self._rename_video(video_path, self.rename_suffix)
+                    if renamed_path:
+                        result['renamed'] = True
+                        result['new_name'] = renamed_path.name
+                        self.renamed_files.append({
+                            'original': video_path.name,
+                            'renamed': renamed_path.name
+                        })
                 
             except Exception as e:
                 video_time = time.time() - video_start
@@ -269,21 +341,28 @@ class BatchVideoProcessor:
         
         # MASTER KOLAŽI nakon svih videa
         self._log(f"\n{'='*70}")
-        self._log("🎨 Kreiranje MASTER kolaža...")
+        self._log(f"🎨 Kreiranje MASTER kolaža (max {self.max_collage_height}px)...")
         print(f"\n{'='*70}")
-        print("🎨 Kreiranje MASTER kolaža za sve regione...")
+        print(f"🎨 Kreiranje MASTER kolaža za sve regione (max {self.max_collage_height}px)...")
         print(f"{'='*70}")
         
-        master_paths = self.extractor.create_master_collages()
+        master_paths = self.extractor.create_master_collages(max_height=self.max_collage_height)
         
         if master_paths:
-            self._log(f"✅ Kreirano {len(master_paths)} MASTER kolaža")
-            print(f"\n✅ Kreirano {len(master_paths)} MASTER kolaža:")
-            for region_name, path in master_paths.items():
-                print(f"   • {path.name}")
+            total_files = sum(len(paths) if isinstance(paths, list) else 1 
+                            for paths in master_paths.values())
+            self._log(f"✅ Kreirano {len(master_paths)} regiona, {total_files} fajlova")
+            print(f"\n✅ Kreirano {len(master_paths)} regiona:")
+            for region_name, paths in master_paths.items():
+                if isinstance(paths, list):
+                    print(f"   • {region_name}: {len(paths)} delova")
+                    for path in paths:
+                        print(f"      - {path.name}")
+                else:
+                    print(f"   • {paths.name}")
         
         # Final summary
-        self._generate_summary(len(master_paths))
+        self._generate_summary(len(master_paths) if master_paths else 0)
         
         return {
             'status': 'completed',
@@ -300,6 +379,8 @@ class BatchVideoProcessor:
         total_collages = sum(r.get('collages', 0) for r in self.results 
                             if r['status'] == 'success')
         
+        renamed_count = len(self.renamed_files)
+        
         print("\n" + "="*70)
         print("📊 FINAL SUMMARY")
         print("="*70)
@@ -309,6 +390,9 @@ class BatchVideoProcessor:
         print(f"🎨 MASTER kolaža:  {master_collages_count} (svi screenshot-ovi + Break)")
         print(f"⏱️  Ukupno vreme:    {total_time/60:.1f} minuta")
         print(f"⚡ Avg po video:    {total_time/len(self.results):.1f} sekundi")
+        print(f"📸 Intervali:      4, 16, 28, 40, 52 min (HARDCODED @ 10 FPS)")
+        if self.rename_suffix:
+            print(f"🏷️  Preimenovano:    {renamed_count}/{successful} fajlova (suffix: '-{self.rename_suffix}')")
         print("="*70)
         
         if failed > 0:
@@ -318,6 +402,13 @@ class BatchVideoProcessor:
                     idx = r.get('global_index', '?')
                     print(f"  [#{idx}] {r['video']}: {r.get('error', 'Unknown')}")
         
+        if self.rename_suffix and self.renamed_files:
+            print(f"\n🏷️  PREIMENOVANI FAJLOVI:")
+            for item in self.renamed_files[:10]:  # Prikaži prvih 10
+                print(f"  ✓ {item['original']} -> {item['renamed']}")
+            if len(self.renamed_files) > 10:
+                print(f"  ... i još {len(self.renamed_files)-10} fajlova")
+        
         print(f"\n📂 Output folder: data/video_screenshots/")
         print(f"📝 Log fajl:      {self.log_path}")
         print()
@@ -326,6 +417,8 @@ class BatchVideoProcessor:
         self._log(f"\n{'='*70}")
         self._log(f"📊 SUMMARY: {successful} success, {failed} failed, "
                  f"{total_time/60:.1f}min, {master_collages_count} MASTER kolaža")
+        if self.rename_suffix:
+            self._log(f"🏷️  Preimenovano: {renamed_count} fajlova sa '-{self.rename_suffix}'")
         self._log(f"{'='*70}\n")
 
 
@@ -337,7 +430,7 @@ if __name__ == "__main__":
     import argparse
     
     parser = argparse.ArgumentParser(
-        description="Batch processing sa OPSEGOM fajlova (od-do) + završni frame",
+        description="Batch processing v2.2 - HARDCODED intervali (4, 16, 28, 40, 52 min @ 10 FPS)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 PRIMERI:
@@ -352,6 +445,14 @@ PRIMERI:
   
   # Procesuj fajlove od 50. do kraja (poslednji dobija završni screenshot)
   python batch_video_processor.py V:/log/ --from 50
+  
+  # Procesuj i preimenuj obrađene fajlove sa sufixom "-DONE"
+  python batch_video_processor.py V:/log/ --rename DONE
+  # 2025-10-15 05-14-53.mp4 -> 2025-10-15 05-14-53-DONE.mp4
+
+NAPOMENA:
+  Intervali su HARDCODED: 4, 16, 28, 40, 52 min (12 min razlika) @ 10 FPS
+  --interval opcija je uklonjena jer se više ne koristi!
         """
     )
     
@@ -378,13 +479,6 @@ PRIMERI:
     )
     
     parser.add_argument(
-        "--interval",
-        type=int,
-        default=16,
-        help="Interval između screenshot-ova u minutima (default: 16)"
-    )
-    
-    parser.add_argument(
         "--pattern",
         type=str,
         default="*.mp4",
@@ -401,7 +495,23 @@ PRIMERI:
     parser.add_argument(
         "--no-final-frame",
         action="store_true",
-        help="NE dodavaj završni screenshot (1sec pre kraja) za poslednji fajl u batch-u"
+        help="NE dodavaj završni screenshot (30 frejmova pre kraja) za poslednji fajl u batch-u"
+    )
+    
+    parser.add_argument(
+        "--rename",
+        type=str,
+        default=None,
+        metavar="SUFFIX",
+        help="Preimenuj uspešno obrađene fajlove dodavanjem suffixa (npr. DONE, OK, PROCESSED)"
+    )
+    
+    parser.add_argument(
+        "--max-height",
+        type=int,
+        default=6000,
+        metavar="PIXELS",
+        help="Maksimalna visina master kolaža pre auto-split (default: 6000px)"
     )
     
     parser.add_argument(
@@ -415,9 +525,10 @@ PRIMERI:
     # Pokreni batch processor
     processor = BatchVideoProcessor(
         video_folder=args.video_folder,
-        interval_minutes=args.interval,
         regions_config=args.regions_config,
-        include_final_frame=not args.no_final_frame
+        include_final_frame=not args.no_final_frame,
+        rename_suffix=args.rename,
+        max_collage_height=args.max_height
     )
     
     # Samo prikaz liste?

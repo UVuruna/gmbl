@@ -1,40 +1,40 @@
 {
   "type": "TEMPORARY_VIDEO_REGIONS",
   "note": "Temporary regioni za video ekstrakciju",
-  "source_video": "2025-10-07 12-20-05.mkv",
+  "source_video": "2025-10-09 10-06-03-done.mp4",
   "video_resolution": "3840x2160",
-  "created": "2025-10-13T18:35:09.436565",
+  "created": "2025-10-18T20:54:51.993361",
   "regions": [
     {
-      "name": "region_1",
-      "x": 554,
-      "y": 319,
-      "width": 1352,
-      "height": 173,
+      "name": "Merkur",
+      "x": 28,
+      "y": 392,
+      "width": 1866,
+      "height": 321,
       "description": "Temp region"
     },
     {
-      "name": "region_2",
-      "x": 2490,
-      "y": 262,
-      "width": 1252,
-      "height": 372,
+      "name": "BalkanBet",
+      "x": 1966,
+      "y": 578,
+      "width": 1738,
+      "height": 356,
       "description": "Temp region"
     },
     {
-      "name": "region_3",
-      "x": 554,
-      "y": 1445,
-      "width": 1328,
-      "height": 171,
+      "name": "Soccer",
+      "x": 27,
+      "y": 1448,
+      "width": 1866,
+      "height": 468,
       "description": "Temp region"
     },
     {
-      "name": "region_4",
-      "x": 2474,
-      "y": 1384,
-      "width": 1345,
-      "height": 172,
+      "name": "Admiral",
+      "x": 1947,
+      "y": 1538,
+      "width": 1839,
+      "height": 329,
       "description": "Temp region"
     }
   ]

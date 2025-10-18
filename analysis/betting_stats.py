@@ -58,7 +58,7 @@ class BettingStatsAnalyzer:
     
     def load_csv(self, path: str) -> List[Dict]:
         """Učitaj CSV i konvertuj u listu dictionary-ja"""
-        df = pd.read_csv(f"documentation/logs/{path}.csv", keep_default_na=True)
+        df = pd.read_csv(f"analysis/csv/{path}.csv", keep_default_na=True)
         df = df.where(pd.notnull(df), None)
         return df.to_dict(orient="records")
     
@@ -87,10 +87,10 @@ class BettingStatsAnalyzer:
         consecutive_losses = 0
         
         for bet in reversed(bet_table):
-            if bet['score'] is None:
+            if bet['SCORE'] is None:
                 continue
             
-            score = float(bet['score'])
+            score = float(bet['SCORE'])
             
             if score >= auto:
                 # Našli smo WIN - kraj je čist
@@ -143,14 +143,15 @@ class BettingStatsAnalyzer:
         if bookmaker_name not in self.money_needed_per_bookmaker:
             self.money_needed_per_bookmaker[bookmaker_name] = 0
         
+        sequence = 0
         for i, bet in enumerate(working_table):
             # Čitaj vreme i skor
-            total_time = int(bet['sec']) if bet['sec'] is not None else 0
+            total_time = int(bet['SEC']) if bet['SEC'] is not None else 0
             
-            if bet['score'] is None:
+            if bet['SCORE'] is None:
                 continue
                 
-            score = float(bet['score'])
+            score = float(bet['SCORE'])
             bet_amount = self.config.bet_order[current_bet_index]
             
             # Uplati ulog
@@ -196,10 +197,12 @@ class BettingStatsAnalyzer:
                 self.money_needed_per_bookmaker[bookmaker_name] = total_balance
             
             # Periodični ispis (svakih ~20 minuta)
-            if total_time != 0 and total_time % 1800 < 20:
+            curr_seq = total_time // 1200
+            if curr_seq != sequence and total_time != 0 and total_time % 1200 < 60:
+                sequence = total_time // 1200
                 if self.config.full_output:
                     self._print_progress(
-                        bookmaker_name, total_balance, max_loss_amount, 
+                        sequence, bookmaker_name, total_balance, max_loss_amount, 
                         max_loss_count, big_losses, total_time
                     )
         
@@ -224,11 +227,11 @@ class BettingStatsAnalyzer:
             trimmed_rounds=trimmed
         )
     
-    def _print_progress(self, bookmaker: str, total: float, max_loss: float, 
+    def _print_progress(self, sequence: int, bookmaker: str, total: float, max_loss: float, 
                        max_count: int, big_losses: int, time_sec: int):
         """Prikaži trenutni progres"""
         print(
-            f"{bookmaker:<10}    |    "
+            f"{sequence:>3}. {bookmaker:<10}    |    "
             f"Total: {total:>10,.0f}    |    "
             f"Max gubitak: {max_loss:>6,.0f} ({max_count:>2,.0f})    |    "
             f"Veliki gubici: {big_losses:>3,.0f}  | "
@@ -326,7 +329,7 @@ class BettingStatsAnalyzer:
 
 def main(config: BettingConfig):  
     # Bookmaker-i za analizu
-    bookmakers = ['admiral', 'balkanbet', 'merkur', 'soccer']
+    bookmakers = ['Admiral', 'BalkanBet', 'Merkur', 'Soccer']
     
     # Kreiraj analizator
     analyzer = BettingStatsAnalyzer(config)
@@ -350,9 +353,9 @@ def main(config: BettingConfig):
 if __name__ == '__main__':
     """Glavna funkcija"""
     # Konfiguracija
-    CASHOUT = 5.0
+    CASHOUT = 2.5
     
-    BETTING_ORDER = [25, 50, 100, 200, 400, 800]
+    BETTING_ORDER = [10, 20, 40, 80, 150, 300, 600, 1200, 2400, 4800, 9600]
     MAX_LOSS = len(BETTING_ORDER)
     
     config = BettingConfig(

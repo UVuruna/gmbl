@@ -173,12 +173,12 @@ def test_betting_styles(
 
 if __name__ == '__main__':
     # Parametri za testiranje
-    START_CASHOUT = 1.8
-    END_CASHOUT = 2.5
-    STEP_CASHOUT = 0.02
-    WINNING_ORDER = [25]
-    MAX_BET = 24000
-    MAX_CYCLE = 8
+    START_CASHOUT = 2
+    END_CASHOUT = 3.5
+    STEP_CASHOUT = 0.01
+    WINNING_ORDER = [35]
+    MAX_BET = 11000
+    MAX_CYCLE = None
     
     test_betting_styles(
         start_cashout=START_CASHOUT,

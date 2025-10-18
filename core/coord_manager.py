@@ -1,21 +1,33 @@
 # core/coord_manager.py
-# VERSION: 5.0 - New positioning system
-# Supports layout-based coordinate positioning
+# VERSION: 5.1 - Updated for new JSON format
+# Supports: positions + bookmakers structure
 
 import json
 from pathlib import Path
-from typing import Dict, Optional, List, Tuple
+from typing import Dict, Optional, List
 from logger import AviatorLogger
 
 
 class CoordsManager:
     """
-    Coordinate manager with layout-based positioning.
+    Coordinate manager for new JSON format.
     
-    New structure:
-    - layouts: Define grid layouts with width/height and positions
-    - bookmakers: Base coordinates (relative to 0,0)
-    - Auto-calculate final coordinates based on layout + position
+    JSON Structure:
+    {
+      "positions": {
+        "TL": {"left": 0, "top": 0},
+        "TC": {"left": 853, "top": 0},
+        ...
+      },
+      "bookmakers": {
+        "BalkanBet": {
+          "score_region": {...},
+          ...
+        }
+      }
+    }
+    
+    Final coordinates = bookmaker_base + position_offset
     """
     
     DEFAULT_FILE = "data/coordinates/bookmaker_coords.json"
@@ -30,7 +42,7 @@ class CoordsManager:
         """Create directory and empty JSON if doesn't exist."""
         self.coords_file.parent.mkdir(parents=True, exist_ok=True)
         if not self.coords_file.exists():
-            default_data = {"layouts": {}, "bookmakers": {}}
+            default_data = {"positions": {}, "bookmakers": {}}
             with open(self.coords_file, 'w') as f:
                 json.dump(default_data, f, indent=2)
             self.logger.info(f"Created new coordinates file: {self.coords_file}")
@@ -39,48 +51,67 @@ class CoordsManager:
         """Load JSON data."""
         try:
             with open(self.coords_file, 'r') as f:
-                return json.load(f)
+                data = json.load(f)
+            
+            # Ensure structure
+            if "positions" not in data:
+                data["positions"] = {}
+            if "bookmakers" not in data:
+                data["bookmakers"] = {}
+            
+            return data
         except Exception as e:
             self.logger.error(f"Error loading coordinates: {e}")
-            return {"layouts": {}, "bookmakers": {}}
+            return {"positions": {}, "bookmakers": {}}
     
-    def get_available_layouts(self) -> List[str]:
-        """Get list of available layout configurations."""
-        return list(self.data.get("layouts", {}).keys())
-    
-    def get_available_positions(self, layout_name: str) -> List[str]:
-        """Get available positions for a layout."""
-        layout = self.data.get("layouts", {}).get(layout_name, {})
-        return list(layout.get("positions", {}).keys())
+    def get_available_positions(self) -> List[str]:
+        """Get list of available position codes (TL, TC, TR, BL, BC, BR)."""
+        return list(self.data.get("positions", {}).keys())
     
     def get_available_bookmakers(self) -> List[str]:
         """Get list of configured bookmakers."""
         return list(self.data.get("bookmakers", {}).keys())
     
-    def get_layout_info(self, layout_name: str) -> Optional[Dict]:
-        """Get layout information (width, height, positions)."""
-        return self.data.get("layouts", {}).get(layout_name)
+    def get_position_offset(self, position_code: str) -> Optional[Dict]:
+        """
+        Get offset for a position code.
+        
+        Args:
+            position_code: Position code (e.g., 'TL', 'TC', 'TR')
+        
+        Returns:
+            Dict with 'left' and 'top' offsets, or None if not found
+        """
+        return self.data.get("positions", {}).get(position_code)
     
     def get_bookmaker_base_coords(self, bookmaker_name: str) -> Optional[Dict]:
-        """Get base coordinates for a bookmaker (relative to 0,0)."""
+        """
+        Get base coordinates for a bookmaker.
+        
+        Args:
+            bookmaker_name: Name of bookmaker (e.g., 'BalkanBet')
+        
+        Returns:
+            Dict with all regions, or None if not found
+        """
         return self.data.get("bookmakers", {}).get(bookmaker_name)
     
     def calculate_coords(
         self, 
         bookmaker_name: str, 
-        layout_name: str, 
-        position: str
+        position_code: str
     ) -> Optional[Dict]:
         """
         Calculate final coordinates for a bookmaker at specific position.
         
+        Formula: final_coords = base_coords + position_offset
+        
         Args:
             bookmaker_name: Name of bookmaker (e.g., 'BalkanBet')
-            layout_name: Layout configuration (e.g., '3_monitors_grid')
-            position: Position in layout (e.g., 'TL', 'TC', 'TR')
+            position_code: Position code (e.g., 'TL', 'TC', 'TR')
         
         Returns:
-            Dict with final coordinates or None if error
+            Dict with final coordinates for all regions, or None if error
         """
         try:
             # Get base coordinates
@@ -89,16 +120,10 @@ class CoordsManager:
                 self.logger.error(f"Bookmaker not found: {bookmaker_name}")
                 return None
             
-            # Get layout info
-            layout = self.get_layout_info(layout_name)
-            if not layout:
-                self.logger.error(f"Layout not found: {layout_name}")
-                return None
-            
             # Get position offset
-            position_offset = layout.get("positions", {}).get(position)
+            position_offset = self.get_position_offset(position_code)
             if not position_offset:
-                self.logger.error(f"Position not found: {position} in layout {layout_name}")
+                self.logger.error(f"Position not found: {position_code}")
                 return None
             
             # Calculate final coordinates
@@ -107,7 +132,8 @@ class CoordsManager:
             
             final_coords = {}
             for region_name, region_data in base_coords.items():
-                if isinstance(region_data, dict):
+                if isinstance(region_data, dict) and 'left' in region_data:
+                    # Rectangle region
                     final_coords[region_name] = {
                         "left": region_data["left"] + offset_left,
                         "top": region_data["top"] + offset_top,
@@ -115,10 +141,12 @@ class CoordsManager:
                         "height": region_data["height"]
                     }
                 else:
+                    # Unknown format - keep as-is
                     final_coords[region_name] = region_data
             
             self.logger.info(
-                f"Calculated coords: {bookmaker_name} @ {layout_name}/{position}"
+                f"Calculated coords: {bookmaker_name} @ {position_code} "
+                f"(offset: +{offset_left}, +{offset_top})"
             )
             return final_coords
             
@@ -132,7 +160,7 @@ class CoordsManager:
         
         Args:
             bookmaker_name: Name of bookmaker
-            coords: Base coordinates (relative to 0,0)
+            coords: Base coordinates (all regions)
         
         Returns:
             True if successful
@@ -153,43 +181,31 @@ class CoordsManager:
             self.logger.error(f"Error saving coordinates: {e}", exc_info=True)
             return False
     
-    def save_layout(
-        self, 
-        layout_name: str, 
-        width: int, 
-        height: int, 
-        positions: Dict[str, Dict[str, int]]
-    ) -> bool:
+    def save_positions(self, positions: Dict[str, Dict[str, int]]) -> bool:
         """
-        Save layout configuration.
+        Save position offsets.
         
         Args:
-            layout_name: Name of layout
-            width: Width of single window
-            height: Height of single window
-            positions: Dict of positions with offsets
+            positions: Dict of position codes with offsets
+                      e.g., {"TL": {"left": 0, "top": 0}, "TC": {"left": 853, "top": 0}}
         
         Returns:
             True if successful
         """
         try:
-            if "layouts" not in self.data:
-                self.data["layouts"] = {}
+            if "positions" not in self.data:
+                self.data["positions"] = {}
             
-            self.data["layouts"][layout_name] = {
-                "width": width,
-                "height": height,
-                "positions": positions
-            }
+            self.data["positions"].update(positions)
             
             with open(self.coords_file, 'w') as f:
                 json.dump(self.data, f, indent=2)
             
-            self.logger.info(f"Saved layout: {layout_name}")
+            self.logger.info(f"Saved positions: {list(positions.keys())}")
             return True
             
         except Exception as e:
-            self.logger.error(f"Error saving layout: {e}", exc_info=True)
+            self.logger.error(f"Error saving positions: {e}", exc_info=True)
             return False
     
     def display_info(self) -> None:
@@ -198,50 +214,56 @@ class CoordsManager:
         print("COORDINATE SYSTEM INFO")
         print("="*60)
         
-        # Layouts
-        layouts = self.get_available_layouts()
-        print(f"\n📐 Available Layouts ({len(layouts)}):")
-        for layout_name in layouts:
-            layout = self.get_layout_info(layout_name)
-            positions = list(layout.get("positions", {}).keys())
-            print(f"  • {layout_name}")
-            print(f"    Size: {layout['width']}x{layout['height']}")
-            print(f"    Positions: {', '.join(positions)}")
+        # Positions
+        positions = self.get_available_positions()
+        print(f"\n📐 Available Positions ({len(positions)}):")
+        for pos_code in positions:
+            offset = self.get_position_offset(pos_code)
+            print(f"  • {pos_code:3s} → Offset: (+{offset['left']}, +{offset['top']})")
         
         # Bookmakers
         bookmakers = self.get_available_bookmakers()
         print(f"\n🎰 Available Bookmakers ({len(bookmakers)}):")
         for bookmaker in bookmakers:
-            print(f"  • {bookmaker}")
+            coords = self.get_bookmaker_base_coords(bookmaker)
+            regions = len([k for k in coords.keys() if 'region' in k or 'coords' in k])
+            print(f"  • {bookmaker:15s} ({regions} regions configured)")
         
         print("\n" + "="*60)
 
 
-# Backward compatibility function
-def load_coordinates_legacy(config_name: str, position: str) -> Optional[Dict]:
-    """Legacy function for backward compatibility."""
+# Legacy compatibility function
+def load_coordinates(bookmaker_name: str, position_code: str) -> Optional[Dict]:
+    """
+    Legacy function for backward compatibility.
+    
+    Args:
+        bookmaker_name: Name of bookmaker
+        position_code: Position code
+    
+    Returns:
+        Final coordinates or None
+    """
     manager = CoordsManager()
-    # Try to interpret as layout_name/position
-    return manager.calculate_coords(position, config_name, position)
+    return manager.calculate_coords(bookmaker_name, position_code)
 
 
 if __name__ == "__main__":
-    # Test/demo
+    """Test coordinate manager."""
     manager = CoordsManager()
     manager.display_info()
     
-    # Example usage
-    print("\n" + "="*60)
-    print("EXAMPLE: Calculate coordinates")
-    print("="*60)
-    
-    coords = manager.calculate_coords(
-        bookmaker_name="BalkanBet",
-        layout_name="3_monitors_grid",
-        position="TL"
-    )
-    
-    if coords:
-        print("\n✅ Calculated coordinates for BalkanBet at TL:")
-        for region, data in coords.items():
-            print(f"  {region}: {data}")
+    # Test calculation
+    if manager.get_available_bookmakers() and manager.get_available_positions():
+        bookmaker = manager.get_available_bookmakers()[0]
+        position = manager.get_available_positions()[0]
+        
+        print(f"\n🧪 Test: {bookmaker} @ {position}")
+        coords = manager.calculate_coords(bookmaker, position)
+        
+        if coords:
+            print("\nCalculated coordinates:")
+            for region_name, region_data in list(coords.items())[:3]:
+                print(f"  {region_name}: {region_data}")
+        else:
+            print("❌ Calculation failed!")

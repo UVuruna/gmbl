@@ -1,39 +1,11 @@
 {
-  "layouts": {
-    "3_monitors_grid": {
-      "width": 1280,
-      "height": 720,
-      "positions": {
-        "TL": {"left": 0, "top": 0},
-        "TC": {"left": 1280, "top": 0},
-        "TR": {"left": 2560, "top": 0},
-        "BL": {"left": 0, "top": 720},
-        "BC": {"left": 1280, "top": 720},
-        "BR": {"left": 2560, "top": 720}
-      }
-    },
-    "4_windows_fullhd": {
-      "width": 960,
-      "height": 540,
-      "positions": {
-        "TL": {"left": 0, "top": 0},
-        "TR": {"left": 960, "top": 0},
-        "BL": {"left": 0, "top": 540},
-        "BR": {"left": 960, "top": 540}
-      }
-    },
-    "6_windows_compact": {
-      "width": 640,
-      "height": 360,
-      "positions": {
-        "TL": {"left": 0, "top": 0},
-        "TC": {"left": 640, "top": 0},
-        "TR": {"left": 1280, "top": 0},
-        "BL": {"left": 0, "top": 360},
-        "BC": {"left": 640, "top": 360},
-        "BR": {"left": 1280, "top": 360}
-      }
-    }
+  "positions": {
+    "TL": {"left": 0, "top": 0},
+    "TC": {"left": 853, "top": 0},
+    "TR": {"left": 1706, "top": 0},
+    "BL": {"left": 0, "top": 696},
+    "BC": {"left": 853, "top": 696},
+    "BR": {"left": 1706, "top": 696}
   },
   
   "bookmakers": {

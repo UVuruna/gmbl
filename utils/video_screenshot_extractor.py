@@ -1,6 +1,12 @@
 # utils/video_screenshot_extractor.py
-# VERSION: 3.1
-# TAČNI FREJMOVI + START OFFSET + REVERSED ORDER + MASTER COLLAGES
+# VERSION: 3.3
+# HARDCODED ZA 10 FPS VIDEO LOGOVE
+# 
+# - Ekstrakcija po FREJMOVIMA za oštre slike
+# - Intervali: 4, 16, 28, 40, 52 minuta (12 min razlika)
+# - Zadnji screenshot: 30 frejmova (3 sek @ 10fps) pre kraja
+# - AUTO-SPLIT: Deli master kolaže na delove ako height >= 6000px
+# - NE SEČE chunk-ove na pola (Break + Screenshot + Spacing = 1 chunk)
 
 import cv2
 import json
@@ -14,23 +20,20 @@ import re
 
 class VideoScreenshotExtractor:
     """
-    Ekstraktuje screenshot-ove sa OBRNUTIM redosledom i pravi master kolaže.
+    Ekstraktuje OŠTRE screenshot-ove iteriranjem po frejmovima.
     
-    v3.1:
-    - ROUND frame_number za tačne frejmove (bez mutnih slika)
-    - Start offset (default 1 minut)
-    - Screenshot-ovi po video snimku OBRNUTI (poslednji gore → prvi dole)
-    - Master kolaž za svaki region (svi screenshot-ovi svih videa)
-    - Timestamp-ovi pored screenshot-ova
-    - Automatski završni frame samo za poslednji video
+    v3.3:
+    - Ekstrakcija direktno iz frame-ova (bez video.set pozicioniranja)
+    - Intervali: 4, 16, 28, 40, 52 minuta (12 min razlika)
+    - Zadnji frame: 3 sekunde pre kraja (30 frejmova @ 10fps)
+    - Screenshot-ovi obrnutim redom (najnoviji gore)
+    - AUTO-SPLIT: Master kolaži se dele na delove ako prelaze 6000px
     """
     
     def __init__(self, regions_config_path: str = "data/coordinates/video_regions.json"):
         self.regions_config_path = Path(regions_config_path)
         self.regions = self._load_regions()
-        
-        # Za master kolaže - čuvamo sve screenshot-ove kroz sve videe
-        self.master_data = {}  # {region_name: [(image, timestamp), ...]}
+        self.master_data = {}
         
     def _load_regions(self) -> List[Dict]:
         """Učitava regione."""
@@ -47,13 +50,8 @@ class VideoScreenshotExtractor:
         return data.get('regions', [])
     
     def parse_video_timestamp(self, video_path: Path) -> Optional[datetime]:
-        """
-        Parsira početno vreme iz imena video fajla.
-        Format: "2025-10-07 11-20-04.avi" -> datetime(2025, 10, 7, 11, 20, 4)
-        """
+        """Parsira početno vreme iz imena video fajla."""
         filename = video_path.stem
-        
-        # Regex: YYYY-MM-DD HH-MM-SS
         pattern = r'(\d{4})-(\d{2})-(\d{2})\s+(\d{2})-(\d{2})-(\d{2})'
         match = re.search(pattern, filename)
         
@@ -68,58 +66,84 @@ class VideoScreenshotExtractor:
             print(f"  ⚠️  Cannot parse datetime: {filename}")
             return None
     
-    def extract_frame_at_time(self, video_path: Path, time_minutes: float) -> np.ndarray:
+    def extract_frame_by_number(self, cap: cv2.VideoCapture, frame_number: int) -> Optional[np.ndarray]:
         """
-        Ekstraktuje frame na određenom vremenu.
-        PRECIZNO postavlja na tačan frame broj (bez interpolacije).
+        Ekstraktuje tačan frame po broju.
+        Direktno skače na frame bez interpolacije.
         """
-        cap = cv2.VideoCapture(str(video_path))
-        
-        if not cap.isOpened():
-            raise ValueError(f"Ne mogu otvoriti video: {video_path}")
-        
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        
-        # ROUND na najbliži ceo frame broj (ne int koji seče)
-        frame_number = round(time_minutes * 60 * fps)
-        
-        # Postavi na TAČAN frame
         cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
-        
-        # Proveri da li je stvarno na pravom frame-u
-        actual_frame = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
-        if actual_frame != frame_number:
-            print(f"  ⚠️  Frame mismatch: tražen {frame_number}, dobijen {actual_frame}")
-        
         ret, frame = cap.read()
-        cap.release()
         
         if not ret:
-            raise ValueError(f"Ne mogu pročitati frame na {time_minutes:.1f} min")
+            return None
         
         return frame
     
-    def extract_final_frame(self, video_path: Path, seconds_before_end: float = 1.0) -> np.ndarray:
-        """Ekstraktuje frame X sekundi pre kraja."""
+    def extract_frames_at_intervals(
+        self, 
+        video_path: Path,
+        include_final_frame: bool = False
+    ) -> Tuple[List[np.ndarray], List[float], float]:
+        """
+        Ekstraktuje frame-ove na fiksnim intervalima: 4, 16, 28, 40, 52 min.
+        Opciono dodaje zadnji frame 30 frejmova (3 sek @ 10fps) pre kraja.
+        
+        HARDCODED za 10 FPS video logove!
+        
+        Returns:
+            (frames, time_points_minutes, fps)
+        """
         cap = cv2.VideoCapture(str(video_path))
         
         if not cap.isOpened():
             raise ValueError(f"Ne mogu otvoriti video: {video_path}")
         
-        fps = cap.get(cv2.CAP_PROP_FPS)
+        # VIDEO LOGOVI SU 10 FPS - HARDCODED
+        FPS = 10.0
+        
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        duration_seconds = total_frames / FPS
+        duration_minutes = duration_seconds / 60
         
-        frames_before_end = int(seconds_before_end * fps)
-        final_frame_number = max(0, total_frames - frames_before_end)
+        print(f"⏱️  Trajanje: {duration_minutes:.2f} min ({total_frames} frejmova @ 10 fps)")
         
-        cap.set(cv2.CAP_PROP_POS_FRAMES, final_frame_number)
-        ret, frame = cap.read()
+        # Fiksni intervali: 4, 16, 28, 40, 52 minuta (12 min razlika)
+        time_points_minutes = [4.0, 16.0, 28.0, 40.0, 52.0]
+        
+        # Filtriraj samo one koji su u okviru trajanja videa
+        valid_time_points = [t for t in time_points_minutes if t < duration_minutes]
+        
+        # Dodaj zadnji frame: 30 frejmova (3 sek) pre kraja
+        if include_final_frame and total_frames > 30:
+            final_frame_number = total_frames - 30
+            final_time_minutes = final_frame_number / (FPS * 60)
+            valid_time_points.append(final_time_minutes)
+        
+        print(f"📸 Screenshot-ovi na: {[f'{t:.1f}min' for t in valid_time_points]}")
+        
+        # Konvertuj minute u frame brojeve (10 FPS)
+        frame_numbers = [round(t * 60 * FPS) for t in valid_time_points]
+        
+        # Ekstraktuj frame-ove
+        frames = []
+        actual_times = []
+        
+        for frame_num, time_min in zip(frame_numbers, valid_time_points):
+            frame = self.extract_frame_by_number(cap, frame_num)
+            
+            if frame is not None:
+                frames.append(frame)
+                actual_times.append(time_min)
+                
+                is_final = (frame_num == frame_numbers[-1] and include_final_frame)
+                marker = " [ZAVRŠNI - 30 frejmova pre kraja]" if is_final else ""
+                print(f"  ✓ Frame {frame_num} ({time_min:.1f} min){marker}")
+            else:
+                print(f"  ✗ Frame {frame_num} ({time_min:.1f} min) - greška")
+        
         cap.release()
         
-        if not ret:
-            raise ValueError(f"Ne mogu pročitati završni frame")
-        
-        return frame
+        return frames, actual_times, FPS
     
     def extract_regions_from_frame(self, frame: np.ndarray) -> Dict[str, np.ndarray]:
         """Ekstraktuje sve regione iz frame-a."""
@@ -132,14 +156,86 @@ class VideoScreenshotExtractor:
             h = region['height']
             name = region['name']
             
+            # Kopiraj region - ovo sprečava mutne slike
             crop = frame[y:y+h, x:x+w].copy()
             regions_crops[name] = crop
         
         return regions_crops
     
-    def create_vertical_collage_with_timestamps(
+    def _split_into_parts(
         self,
         region_images: List[np.ndarray],
+        timestamps: List[datetime],
+        max_height: int = 6000,
+        break_height: int = 35,
+        spacing: int = 30,
+        header_height: int = 120
+    ) -> List[Dict]:
+        """
+        Deli slike u delove (parts) tako da nijedan deo ne prelazi max_height.
+        
+        VAŽNO: NE sme da seče chunk na pola!
+        Chunk = Break separator + Screenshot + Spacing
+        
+        Args:
+            region_images: Lista screenshot-ova
+            timestamps: Lista timestamp-ova
+            max_height: Maksimalna visina jednog dela (px)
+            break_height: Visina break separator-a
+            spacing: Razmak između screenshot-ova
+            header_height: Visina header-a
+        
+        Returns:
+            Lista delova, svaki deo ima {'images': [...], 'timestamps': [...]}
+        """
+        if not region_images:
+            return []
+        
+        # Konvertuj BGR -> RGB
+        pil_images = [Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)) 
+                      for img in region_images]
+        
+        parts = []
+        current_part_images = []
+        current_part_timestamps = []
+        current_height = header_height
+        
+        for img, ts in zip(pil_images, timestamps):
+            # Visina jednog chunk-a
+            chunk_height = break_height + img.height + spacing
+            
+            # Da li chunk staje u trenutni deo?
+            if current_height + chunk_height > max_height and current_part_images:
+                # Ne staje! Sačuvaj trenutni deo i počni novi
+                parts.append({
+                    'images': current_part_images,
+                    'timestamps': current_part_timestamps,
+                    'final_height': current_height
+                })
+                
+                # Novi deo
+                current_part_images = [img]
+                current_part_timestamps = [ts]
+                current_height = header_height + chunk_height
+            else:
+                # Staje! Dodaj u trenutni deo
+                current_part_images.append(img)
+                current_part_timestamps.append(ts)
+                current_height += chunk_height
+        
+        # Dodaj poslednji deo
+        if current_part_images:
+            parts.append({
+                'images': current_part_images,
+                'timestamps': current_part_timestamps,
+                'final_height': current_height
+            })
+        
+        return parts
+    
+    def create_vertical_collage_with_timestamps(
+        self,
+        pil_images: List[Image.Image],
         timestamps: List[datetime],
         region_name: str,
         spacing: int = 30,
@@ -148,25 +244,24 @@ class VideoScreenshotExtractor:
     ) -> Image.Image:
         """
         Kreira vertikalni kolaž OBRNUTIM redom (poslednji gore → prvi dole).
-        "Break - YYYY-MM-DD HH:MM:SS" u istoj liniji iznad screenshot-a.
+        
+        Args:
+            pil_images: Lista PIL slika (već konvertovanih iz BGR)
+            timestamps: Lista timestamp-ova
+            region_name: Ime regiona (može sadržati Part info)
         """
-        if not region_images:
+        if not pil_images:
             raise ValueError("Nema slika!")
         
-        # OBRNI redosled - poslednji gore, prvi dole
-        region_images = list(reversed(region_images))
+        # OBRNI redosled
+        pil_images = list(reversed(pil_images))
         timestamps = list(reversed(timestamps))
-        
-        # Konvertuj BGR → RGB
-        pil_images = [Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)) 
-                      for img in region_images]
         
         # Dimensions
         max_img_width = max(img.width for img in pil_images)
-        total_width = max_img_width + 40  # Padding
+        total_width = max_img_width + 40
         
-        # Visina: header + (break_height + screenshot + spacing) za svaki screenshot
-        total_height = 100  # Header
+        total_height = 100
         for img in pil_images:
             total_height += break_height + img.height + spacing
         
@@ -198,7 +293,7 @@ class VideoScreenshotExtractor:
         for i, (img, timestamp) in enumerate(zip(pil_images, timestamps)):
             x_offset = 20
             
-            # --- "Break - YYYY-MM-DD HH:MM:SS" U ISTOJ LINIJI ---
+            # Break tekst
             break_y = current_y + (break_height // 2) - 10
             
             if timestamp:
@@ -206,7 +301,7 @@ class VideoScreenshotExtractor:
             else:
                 break_text = "Break"
             
-            # Background za Break+timestamp
+            # Background za Break
             text_bbox = draw.textbbox((0, 0), break_text, font=font_break)
             text_width = text_bbox[2] - text_bbox[0]
             
@@ -221,10 +316,10 @@ class VideoScreenshotExtractor:
             
             current_y += break_height
             
-            # --- SCREENSHOT ---
+            # Screenshot
             collage.paste(img, (x_offset, current_y))
             
-            # Separator line
+            # Separator
             if i < len(pil_images) - 1:
                 line_y = current_y + img.height + (spacing // 2)
                 draw.line([(20, line_y), (total_width - 20, line_y)], 
@@ -237,87 +332,53 @@ class VideoScreenshotExtractor:
     def process_single_video(
         self,
         video_path: Path,
-        interval_minutes: int = 16,
         output_dir: Path = None,
-        include_final_frame: bool = False,
-        start_offset_minutes: float = 1.0
+        include_final_frame: bool = False
     ) -> Dict[str, Path]:
-        """
-        Procesuje jedan video - screenshot-ovi OBRNUTIM redom.
-        
-        Args:
-            start_offset_minutes: Počni od ovog minuta (default 1.0 = 60s)
-        """
+        """Procesuje jedan video - hardcoded 10 FPS."""
         if output_dir is None:
             output_dir = Path("data/video_screenshots")
         
         output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Parsuj početno vreme iz imena
         start_time = self.parse_video_timestamp(video_path)
         
-        # Video info
-        cap = cv2.VideoCapture(str(video_path))
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        duration_minutes = (frame_count / fps) / 60
-        cap.release()
-        
-        print(f"\n📹 {video_path.name}")
-        print(f"⏱️  Trajanje: {duration_minutes:.1f} min")
-        print(f"🎬 FPS: {fps:.2f}")
+        print(f"\n🎥 {video_path.name}")
         if start_time:
             print(f"🕐 Početak: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
         
-        # Time points - POČNI OD start_offset_minutes
-        time_points = []
-        current_time = start_offset_minutes
+        # Ekstraktuj frame-ove (10 FPS hardcoded)
+        frames, time_points, fps = self.extract_frames_at_intervals(
+            video_path,
+            include_final_frame=include_final_frame
+        )
         
-        while current_time < duration_minutes:
-            time_points.append(current_time)
-            current_time += interval_minutes
+        if not frames:
+            print("  ⚠️  Nema ekstraktovanih frame-ova!")
+            return {}
         
-        # Dodaj završni frame ako treba
-        if include_final_frame:
-            final_time_min = (frame_count / fps - 1.0) / 60.0
-            if final_time_min > 0 and final_time_min not in time_points:
-                time_points.append(final_time_min)
-        
-        print(f"📸 Ekstrakcija na: {[f'{t:.1f}min' for t in time_points]}")
-        print(f"   (počinje od {start_offset_minutes:.1f} min umesto 0)")
-        
-        # Ekstraktuj
+        # Grupiši po regionima
         regions_over_time = {region['name']: [] for region in self.regions}
         timestamps_per_region = {region['name']: [] for region in self.regions}
         
-        for time_min in time_points:
-            try:
-                frame = self.extract_frame_at_time(video_path, time_min)
-                regions_crops = self.extract_regions_from_frame(frame)
+        for frame, time_min in zip(frames, time_points):
+            regions_crops = self.extract_regions_from_frame(frame)
+            
+            if start_time:
+                screenshot_time = start_time + timedelta(minutes=time_min)
+            else:
+                screenshot_time = None
+            
+            for region_name, crop in regions_crops.items():
+                regions_over_time[region_name].append(crop)
+                timestamps_per_region[region_name].append(screenshot_time)
                 
-                # Timestamp za ovaj screenshot
-                if start_time:
-                    screenshot_time = start_time + timedelta(minutes=time_min)
-                else:
-                    screenshot_time = None
-                
-                for region_name, crop in regions_crops.items():
-                    regions_over_time[region_name].append(crop)
-                    timestamps_per_region[region_name].append(screenshot_time)
-                    
-                    # Sačuvaj za master kolaž
-                    if region_name not in self.master_data:
-                        self.master_data[region_name] = []
-                    self.master_data[region_name].append((crop, screenshot_time))
-                
-                is_final = (time_min == time_points[-1] and include_final_frame)
-                marker = " [ZAVRŠNI]" if is_final else ""
-                print(f"  ✓ {time_min:.1f} min{marker}")
-                
-            except Exception as e:
-                print(f"  ✗ {time_min:.1f} min - {e}")
+                # Čuvaj za master kolaž
+                if region_name not in self.master_data:
+                    self.master_data[region_name] = []
+                self.master_data[region_name].append((crop, screenshot_time))
         
-        # Kreiraj kolaže za ovaj video (OBRNUTIM redom)
+        # Kreiraj kolaže
         collage_paths = {}
         video_basename = video_path.stem
         
@@ -327,62 +388,98 @@ class VideoScreenshotExtractor:
             
             timestamps = timestamps_per_region[region_name]
             
+            # Konvertuj BGR -> RGB
+            pil_images = [Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)) 
+                          for img in images]
+            
             collage = self.create_vertical_collage_with_timestamps(
-                images,
+                pil_images,
                 timestamps,
                 region_name
             )
             
             output_filename = f"{video_basename}_{region_name}_collage.png"
             output_path = output_dir / output_filename
-            collage.save(output_path)
+            collage.save(output_path, quality=100, optimize=False)
             
             collage_paths[region_name] = output_path
-            print(f"  ✅ {output_filename} ({len(images)} screenshot-ova, OBRNUTO + Break)")
+            print(f"  ✅ {output_filename} ({len(images)} screenshot-ova)")
         
         return collage_paths
     
-    def create_master_collages(self, output_dir: Path = None):
+    def create_master_collages(self, output_dir: Path = None, max_height: int = 6000):
         """
-        Kreira MASTER kolaže za svaki region.
-        Sadrži SVE screenshot-ove iz SVIH videa (najnoviji → najstariji).
+        Kreira MASTER kolaže za svaki region (svi videi).
+        
+        AUTO-SPLIT: Ako kolaž prelazi max_height, deli ga na delove.
+        NE seče chunk-ove na pola!
+        
+        Args:
+            output_dir: Folder za output
+            max_height: Maksimalna visina jednog kolaža (px)
         """
         if output_dir is None:
             output_dir = Path("data/video_screenshots")
         
         if not self.master_data:
             print("⚠️  Nema podataka za master kolaže!")
-            return {}
+            return []
         
-        print(f"\n{'='*70}")
-        print("🎨 Kreiranje MASTER kolaža...")
-        print(f"{'='*70}")
+        output_dir.mkdir(parents=True, exist_ok=True)
         
         master_paths = {}
         
+        print(f"\n🎨 MASTER KOLAŽI (max height: {max_height}px):")
+        
         for region_name, data_list in self.master_data.items():
-            if not data_list:
-                continue
-            
-            # Razdvoji slike i timestamp-ove
             images = [img for img, _ in data_list]
             timestamps = [ts for _, ts in data_list]
             
-            # Kreiraj master kolaž
-            collage = self.create_vertical_collage_with_timestamps(
+            if not images:
+                continue
+            
+            # Podeli na delove ako je potrebno
+            parts = self._split_into_parts(
                 images,
                 timestamps,
-                f"MASTER - {region_name}",
-                spacing=40,
-                break_height=40
+                max_height=max_height
             )
             
-            output_filename = f"MASTER_{region_name}_collage.png"
-            output_path = output_dir / output_filename
-            collage.save(output_path)
+            if len(parts) == 1:
+                # JEDAN kolaž
+                collage = self.create_vertical_collage_with_timestamps(
+                    parts[0]['images'],
+                    parts[0]['timestamps'],
+                    f"{region_name} - MASTER"
+                )
+                
+                output_filename = f"MASTER_{region_name}.png"
+                output_path = output_dir / output_filename
+                collage.save(output_path, quality=100, optimize=False)
+                
+                master_paths[region_name] = [output_path]
+                print(f"  ✅ {output_filename} ({len(images)} screenshot-ova, {parts[0]['final_height']}px)")
             
-            master_paths[region_name] = output_path
-            print(f"✅ {output_filename} ({len(images)} screenshot-ova iz svih videa + Break)")
+            else:
+                # VIŠE delova
+                part_paths = []
+                
+                for part_idx, part in enumerate(parts, 1):
+                    collage = self.create_vertical_collage_with_timestamps(
+                        part['images'],
+                        part['timestamps'],
+                        f"{region_name} - MASTER (Part {part_idx}/{len(parts)})"
+                    )
+                    
+                    output_filename = f"MASTER_{region_name}_{part_idx}.png"
+                    output_path = output_dir / output_filename
+                    collage.save(output_path, quality=100, optimize=False)
+                    
+                    part_paths.append(output_path)
+                    print(f"  ✅ {output_filename} ({len(part['images'])} screenshot-ova, {part['final_height']}px)")
+                
+                master_paths[region_name] = part_paths
+                print(f"  📊 {region_name}: {len(parts)} delova, {len(images)} total screenshot-ova")
         
         return master_paths
     
@@ -390,37 +487,20 @@ class VideoScreenshotExtractor:
         self,
         video_folder: Path,
         pattern: str = "*.mp4",
-        interval_minutes: int = 16,
-        include_final_frame: bool = True,
-        start_offset_minutes: float = 1.0
-    ) -> List[Dict]:
-        """
-        Procesuje sve videe i pravi master kolaže.
-        
-        Args:
-            start_offset_minutes: Počni screenshot-ove od ovog minuta (default 1.0)
-        """
-        video_folder = Path(video_folder)
+        include_final_frame: bool = False
+    ):
+        """Batch procesiranje - hardcoded 10 FPS."""
         video_files = sorted(video_folder.glob(pattern))
         
-        # Auto-detect ako nema .mp4
-        if not video_files and pattern == "*.mp4":
-            print(f"⚠️  Nema .mp4, tražim sve formate...")
-            for p in ["*.avi", "*.mkv", "*.mov", "*.wmv", "*.flv", "*.webm"]:
-                videos = list(video_folder.glob(p))
-                if videos:
-                    video_files.extend(videos)
-            video_files = sorted(video_files)
-        
         if not video_files:
-            print(f"❌ Nema video fajlova!")
+            print(f"❌ Nema video fajlova u: {video_folder}")
             return []
         
         print(f"\n{'='*70}")
-        print(f"🎬 {len(video_files)} video fajlova")
-        print(f"⏱️  Interval: {interval_minutes} min")
-        print(f"▶️  Start offset: {start_offset_minutes:.1f} min")
-        print(f"🎯 Završni frame: {'DA (samo poslednji)' if include_final_frame else 'NE'}")
+        print(f"🎬 {len(video_files)} video fajlova (10 FPS)")
+        print(f"📸 Intervali: 4, 16, 28, 40, 52 min (12 min razlika)")
+        print(f"🎯 Završni frame: {'DA (30 frejmova pre kraja)' if include_final_frame else 'NE'}")
+        print(f"✂️  Auto-split: Master kolaži > 6000px dele se na delove")
         print(f"{'='*70}")
         
         results = []
@@ -428,19 +508,16 @@ class VideoScreenshotExtractor:
         for i, video_path in enumerate(video_files, 1):
             print(f"\n[{i}/{len(video_files)}]", end=" ")
             
-            # Završni frame SAMO za poslednji video
             is_last = (i == len(video_files))
             include_final = include_final_frame and is_last
             
             if include_final:
-                print("🎯 POSLEDNJI - dodaje završni screenshot!")
+                print("🎯 POSLEDNJI - dodaje završni screenshot (30 frejmova pre kraja)!")
             
             try:
                 collage_paths = self.process_single_video(
                     video_path,
-                    interval_minutes=interval_minutes,
-                    include_final_frame=include_final,
-                    start_offset_minutes=start_offset_minutes
+                    include_final_frame=include_final
                 )
                 
                 results.append({
@@ -457,16 +534,19 @@ class VideoScreenshotExtractor:
                     'error': str(e)
                 })
         
-        # MASTER KOLAŽI na kraju
+        # MASTER KOLAŽI sa auto-split
         print(f"\n{'='*70}")
-        master_paths = self.create_master_collages()
+        master_paths = self.create_master_collages(max_height=6000)
         print(f"{'='*70}")
         
         # Summary
         successful = sum(1 for r in results if r['status'] == 'success')
+        total_master_files = sum(len(paths) if isinstance(paths, list) else 1 
+                                for paths in master_paths.values())
+        
         print(f"\n✅ Uspešno: {successful}/{len(video_files)}")
         print(f"❌ Neuspešno: {len(video_files) - successful}/{len(video_files)}")
-        print(f"🎨 Master kolaži: {len(master_paths)}")
+        print(f"🎨 Master kolaži: {len(master_paths)} regiona, {total_master_files} fajlova")
         
         return results
 
@@ -475,20 +555,19 @@ if __name__ == "__main__":
     import argparse
     
     parser = argparse.ArgumentParser(
-        description="Video screenshot extractor v3.1 - REVERSED + MASTER + TAČNI FREJMOVI"
+        description="Video screenshot extractor v3.3 - AUTO-SPLIT za velike kolaže"
     )
     
     parser.add_argument("video_folder", type=str, help="Folder sa video fajlovima")
-    parser.add_argument("--interval", type=int, default=16, help="Interval u minutima")
-    parser.add_argument("--start-offset", type=float, default=1.0, 
-                       help="Počni od ovog minuta (default 1.0)")
     parser.add_argument("--pattern", type=str, default="*.mp4", help="Glob pattern")
     parser.add_argument("--regions-config", type=str, 
                        default="data/coordinates/video_regions.json",
                        help="TEMP JSON config")
     parser.add_argument("--single", action="store_true", help="Samo jedan video")
-    parser.add_argument("--no-final-frame", action="store_true", 
-                       help="NE dodavaj završni frame")
+    parser.add_argument("--final-frame", action="store_true", 
+                       help="Dodaj završni frame (30 frejmova pre kraja @ 10fps)")
+    parser.add_argument("--max-height", type=int, default=6000,
+                       help="Max visina master kolaža pre split-a (default: 6000px)")
     
     args = parser.parse_args()
     
@@ -498,8 +577,6 @@ if __name__ == "__main__":
         print("❌ Nema regiona! Koristi video_region_editor.py")
         exit(1)
     
-    include_final = not args.no_final_frame
-    
     if args.single:
         video_path = Path(args.video_folder)
         if not video_path.is_file():
@@ -508,18 +585,13 @@ if __name__ == "__main__":
         
         extractor.process_single_video(
             video_path,
-            interval_minutes=args.interval,
-            include_final_frame=include_final,
-            start_offset_minutes=args.start_offset
+            include_final_frame=args.final_frame
         )
         
-        # Master kolaž i za single
-        extractor.create_master_collages()
+        extractor.create_master_collages(max_height=args.max_height)
     else:
         extractor.batch_process_videos(
             Path(args.video_folder),
             pattern=args.pattern,
-            interval_minutes=args.interval,
-            include_final_frame=include_final,
-            start_offset_minutes=args.start_offset
+            include_final_frame=args.final_frame
         )
